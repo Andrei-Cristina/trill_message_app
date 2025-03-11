@@ -1,0 +1,16 @@
+ktor:
+    application:
+        modules:
+            - com.trill.message.ApplicationKt.module
+    deployment:
+        port: 8080
+db:
+  mongo:
+    url: "mongodb://localhost:27017"
+    database:
+      name: "trill_message"
+    host: "localhost"
+    port: "27017"
+    user: "andrei"
+    password: "andrei"
+    maxPoolSize: 10
