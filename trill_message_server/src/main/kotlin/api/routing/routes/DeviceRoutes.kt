@@ -31,7 +31,7 @@ fun Route.deviceRoutes() {
 
                     devices.forEach {
                         val oneTimePreKey = it.onetimePreKeys.first()
-                        deviceRepository.deleteOneTimePreKey(it.identityKey, oneTimePreKey)
+                        deviceRepository.deleteOneTimePreKey(it.identityKey.toString(), oneTimePreKey.toString())
 
                         bundleList.add(
                             DeviceKeyBundle(
@@ -65,7 +65,7 @@ fun Route.deviceRoutes() {
 
                 device?.let {
                     val oneTimePreKey = it.onetimePreKeys.first()
-                    deviceRepository.deleteOneTimePreKey(it.identityKey, oneTimePreKey)
+                    deviceRepository.deleteOneTimePreKey(it.identityKey.toString(), oneTimePreKey.toString())
                     call.respond(
                         HttpStatusCode.OK,
                         DeviceKeyBundle(
@@ -88,7 +88,7 @@ fun Route.deviceRoutes() {
                     if (it.onetimePreKeys.isNotEmpty()) {
                         val oneTimePreKey = it.onetimePreKeys.first()
 
-                        deviceRepository.deleteOneTimePreKey(it.identityKey, oneTimePreKey)
+                        deviceRepository.deleteOneTimePreKey(it.identityKey.toString(), oneTimePreKey.toString())
 
                         call.respond(
                             HttpStatusCode.OK,
@@ -117,7 +117,7 @@ fun Route.deviceRoutes() {
                     registerBundle.onetimePreKeys,
                     isPrimary = false,
                     isOnline = false,
-                    lastOnline = GMTDate()
+                    lastOnline = GMTDate().toString()
                 )
             ).fold(
                 onSuccess = { id -> call.respond(HttpStatusCode.Created, mapOf("deviceId" to id)) },

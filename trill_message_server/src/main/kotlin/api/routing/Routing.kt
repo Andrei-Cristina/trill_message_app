@@ -7,6 +7,7 @@ import com.trill.message.api.routing.routes.userRoutes
 import io.ktor.server.application.*
 import io.ktor.server.routing.*
 import io.ktor.server.sse.*
+import io.ktor.server.websocket.*
 
 fun Application.configureRouting() {
     install(SSE)

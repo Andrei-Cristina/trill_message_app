@@ -7,6 +7,16 @@ plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    kotlin("plugin.serialization") version "2.0.0"
+    id("app.cash.sqldelight") version "2.0.0"
+}
+
+sqldelight {
+    databases {
+        create("TrillMessageDatabase") {
+            packageName.set("org.message.trill.db")
+        }
+    }
 }
 
 kotlin {
@@ -25,6 +35,8 @@ kotlin {
         androidMain.dependencies {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
+            implementation(libs.lazysodium.java)
+            implementation(libs.android.driver)
         }
         commonMain.dependencies {
             implementation(compose.runtime)
@@ -35,17 +47,25 @@ kotlin {
             implementation(compose.components.uiToolingPreview)
             implementation(libs.androidx.lifecycle.viewmodel)
             implementation(libs.androidx.lifecycle.runtime.compose)
+            implementation(libs.kotlinx.datetime)
 
             implementation(libs.ionspin.multiplatform.crypto.libsodium.bindings)
+            implementation(libs.ktor.ktor.serialization.kotlinx.json)
 
-            // https://mvnrepository.com/artifact/io.ktor/ktor-client-core
-            runtimeOnly(libs.ktor.client.core)
+            implementation(libs.ktor.client.core)
+            implementation(libs.ktor.serialization.kotlinx.json)
+            implementation(libs.ktor.client.content.negotiation)
+            //runtimeOnly(libs.ktor.client.core)
 
+            implementation(libs.runtime)
 
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutines.swing)
+            implementation(libs.lazysodium.java)
+            implementation(libs.ktor.client.cio.jvm)
+            implementation(libs.sqlite.driver)
         }
     }
 }

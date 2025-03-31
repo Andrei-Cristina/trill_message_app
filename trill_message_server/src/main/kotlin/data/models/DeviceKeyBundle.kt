@@ -4,8 +4,8 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class DeviceKeyBundle(
-    val identityKey: String,
-    val signedPreKey: String,
-    val preKeySignature: String,
-    val onetimePreKey: String
+    val identityKey: ByteArray,
+    val signedPreKey: ByteArray,
+    val signature: ByteArray,
+    val onetimePreKey: ByteArray
 )

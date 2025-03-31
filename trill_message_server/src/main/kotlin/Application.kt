@@ -39,6 +39,6 @@ fun Application.module() {
         )
     }
 
-    configureRouting()
     configureSockets()
+    configureRouting()
 }

@@ -12,7 +12,7 @@ data class User(
     val email: String,
     val nickname: String,
     val isOnline: Boolean,
-    val lastOnline: GMTDate
+    val lastOnline: String
 ) {
     companion object {
         private val json = Json { ignoreUnknownKeys = true }

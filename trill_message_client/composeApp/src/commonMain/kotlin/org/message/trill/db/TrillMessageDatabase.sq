@@ -1,0 +1,112 @@
+CREATE TABLE identity_key (
+    public_key BLOB NOT NULL,
+    private_key BLOB NOT NULL
+);
+
+CREATE TABLE signed_prekey (
+    id INTEGER PRIMARY KEY,
+    public_key BLOB NOT NULL,
+    private_key BLOB NOT NULL,
+    signature BLOB NOT NULL
+);
+
+CREATE TABLE one_time_prekeys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    public_key BLOB NOT NULL,
+    private_key BLOB NOT NULL
+);
+
+CREATE TABLE user_records (
+    user_id TEXT PRIMARY KEY,
+    is_stale INTEGER NOT NULL DEFAULT 0,
+    stale_since INTEGER
+);
+
+CREATE TABLE device_records (
+    user_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    public_key BLOB NOT NULL,
+    is_stale INTEGER NOT NULL DEFAULT 0,
+    stale_since INTEGER,
+    active_session_id TEXT,
+    FOREIGN KEY (user_id) REFERENCES user_records(user_id),
+    PRIMARY KEY (user_id, device_id)
+);
+
+CREATE TABLE sessions (
+    session_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    ratchet_state BLOB NOT NULL,
+    is_initiating INTEGER NOT NULL,
+    timestamp INTEGER NOT NULL,
+    FOREIGN KEY (user_id, device_id) REFERENCES device_records(user_id, device_id)
+);
+
+CREATE TABLE client_info (
+    user_email TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    PRIMARY KEY (user_email, device_id)
+);
+
+selectClientInfo:
+SELECT * FROM client_info;
+
+insertOrReplaceClientInfo:
+INSERT OR REPLACE INTO client_info (user_email, device_id) VALUES (?, ?);
+
+selectIdentityKey:
+SELECT * FROM identity_key;
+
+insertIdentityKey:
+INSERT OR REPLACE INTO identity_key (public_key, private_key) VALUES (?, ?);
+
+deleteIdentityKey:
+DELETE FROM identity_key;
+
+selectSignedPreKey:
+SELECT * FROM signed_prekey WHERE id = ?;
+
+selectLatestSignedPreKey:
+SELECT * FROM signed_prekey ORDER BY id DESC LIMIT 1;
+
+insertSignedPreKey:
+INSERT OR REPLACE INTO signed_prekey (id, public_key, private_key, signature) VALUES (?, ?, ?, ?);
+
+deleteSignedPreKey:
+DELETE FROM signed_prekey WHERE id = ?;
+
+deleteAllSignedPreKeys:
+DELETE FROM signed_prekey;
+
+selectOneTimePreKey:
+SELECT * FROM one_time_prekeys WHERE id = ?;
+
+selectFirstOneTimePreKey:
+SELECT * FROM one_time_prekeys ORDER BY id ASC LIMIT 1;
+
+insertOneTimePreKey:
+INSERT INTO one_time_prekeys (public_key, private_key) VALUES (?, ?);
+
+deleteOneTimePreKey:
+DELETE FROM one_time_prekeys WHERE id = ?;
+
+selectAllUserRecords:
+SELECT * FROM user_records;
+
+insertOrReplaceUserRecord:
+INSERT OR REPLACE INTO user_records (user_id, is_stale, stale_since) VALUES (?, ?, ?);
+
+selectDevicesByUser:
+SELECT * FROM device_records WHERE user_id = ?;
+
+insertOrReplaceDeviceRecord:
+INSERT OR REPLACE INTO device_records (user_id, device_id, public_key, is_stale, stale_since, active_session_id)
+VALUES (?, ?, ?, ?, ?, ?);
+
+selectSessionsByDevice:
+SELECT * FROM sessions WHERE user_id = ? AND device_id = ?;
+
+insertOrReplaceSession:
+INSERT OR REPLACE INTO sessions (session_id, user_id, device_id, ratchet_state, is_initiating, timestamp)
+VALUES (?, ?, ?, ?, ?, ?);

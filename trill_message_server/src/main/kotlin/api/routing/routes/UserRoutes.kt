@@ -37,7 +37,7 @@ fun Route.userRoutes() {
         post {
             val user = call.receive<UserRegisterRequest>()
 
-            userRepository.create(User(user.email, user.nickname, isOnline = false, lastOnline = GMTDate())).fold(
+            userRepository.create(User(user.email, user.nickname, isOnline = false, lastOnline = GMTDate().toString())).fold(
                 onSuccess = { call.respond(HttpStatusCode.Created, "Successful") },
                 onFailure = { e ->
                     call.respond(

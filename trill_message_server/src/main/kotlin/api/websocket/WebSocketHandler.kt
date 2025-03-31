@@ -1,5 +1,6 @@
 package com.trill.message.api.websocket
 
+import com.trill.message.data.models.Message
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.channels.ClosedReceiveChannelException

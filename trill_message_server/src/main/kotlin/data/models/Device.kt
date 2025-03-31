@@ -9,13 +9,13 @@ import org.bson.Document
 @Serializable
 data class Device(
     val userId: String,
-    val identityKey: String,
-    val signedPreKey: String,
-    val preKeySignature: String,
-    val onetimePreKeys: List<String>,
+    val identityKey: ByteArray,
+    val signedPreKey: ByteArray,
+    val preKeySignature: ByteArray,
+    val onetimePreKeys: List<ByteArray>,
     val isOnline: Boolean,
     val isPrimary: Boolean,
-    val lastOnline: GMTDate
+    val lastOnline: String
 ){
     companion object {
         private val json = Json { ignoreUnknownKeys = true }

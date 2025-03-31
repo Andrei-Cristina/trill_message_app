@@ -25,7 +25,7 @@ fun Route.messageRoutes() {
 
                     try {
                         val message = Json.decodeFromString<Message>(messageText)
-                        WebSocketHandler.sendMessage(message.receiver, messageText)
+                        WebSocketHandler.sendMessage(message.recipientDeviceId, messageText)
                     } catch (e: Exception) {
                         println("Failed to parse message: $e")
                     }

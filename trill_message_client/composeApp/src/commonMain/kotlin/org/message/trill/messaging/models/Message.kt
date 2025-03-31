@@ -1,6 +1,5 @@
-package com.trill.message.data.models
+package org.message.trill.messaging.models
 
-import io.ktor.util.date.*
 import kotlinx.serialization.Serializable
 
 @Serializable
