@@ -3,6 +3,10 @@ package org.message.trill.encryption.double_ratchet
 import org.message.trill.encryption.keys.PreKey
 import org.message.trill.encryption.x3dh.X3DHResult
 import org.message.trill.encryption.utils.EncryptionUtils
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.ObjectInputStream
+import java.io.ObjectOutputStream
 
 /**
  * Data class representing the state of the Double Ratchet algorithm.
@@ -93,6 +97,54 @@ data class RatchetState(
             ckr = null,
             ad = result.ad
         )
+
+        fun fromByteArray(data: ByteArray): RatchetState {
+            val byteStream = ByteArrayInputStream(data)
+            ObjectInputStream(byteStream).use { ois ->
+                val dhsFirst = ois.readObject() as ByteArray
+                val dhsSecond = ois.readObject() as ByteArray
+                val dhr = ois.readObject() as ByteArray?
+                val rk = ois.readObject() as ByteArray
+                val cks = ois.readObject() as ByteArray?
+                val ckr = ois.readObject() as ByteArray?
+                val ns = ois.readInt()
+                val nr = ois.readInt()
+                val pn = ois.readInt()
+                val ad = ois.readObject() as ByteArray
+                val skipped = ois.readObject() as MutableMap<String, ByteArray>
+
+                return RatchetState(
+                    dhs = Pair(dhsFirst, dhsSecond),
+                    dhr = dhr,
+                    rk = rk,
+                    cks = cks,
+                    ckr = ckr,
+                    ns = ns,
+                    nr = nr,
+                    pn = pn,
+                    ad = ad,
+                    skipped = skipped
+                )
+            }
+        }
+    }
+
+    fun toByteArray(): ByteArray {
+        val byteStream = ByteArrayOutputStream()
+        ObjectOutputStream(byteStream).use { oos ->
+            oos.writeObject(dhs.first)
+            oos.writeObject(dhs.second)
+            oos.writeObject(dhr)
+            oos.writeObject(rk)
+            oos.writeObject(cks)
+            oos.writeObject(ckr)
+            oos.writeInt(ns)
+            oos.writeInt(nr)
+            oos.writeInt(pn)
+            oos.writeObject(ad)
+            oos.writeObject(skipped)
+        }
+        return byteStream.toByteArray()
     }
 
     override fun equals(other: Any?): Boolean {

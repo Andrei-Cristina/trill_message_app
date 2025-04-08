@@ -25,9 +25,9 @@ expect class SessionStorage {
     fun loadUserRecords(): Map<out String, UserRecord>
     fun saveUserRecords(userRecords: MutableMap<String, UserRecord>)
 
-    fun saveDeviceRecord(user:String, record:DeviceRecord)
+    fun saveDeviceRecord(user:String, nickname:String, record:DeviceRecord)
 
     fun loadUserEmail(): String
     fun loadDeviceId(): String
-    fun setClientInfo(userEmail: String, deviceId: String)
+    fun setClientInfo(userEmail: String, userNickname:String, deviceId: String)
 }

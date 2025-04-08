@@ -2,10 +2,13 @@ package org.message.trill.encryption.keys
 
 import org.message.trill.encryption.utils.EncryptionUtils
 import kotlinx.serialization.Serializable
+import org.message.trill.encryption.utils.ByteArraySerializer
 
 @Serializable
 data class SignedPreKey(
     val preKey: PreKey,
+
+    @Serializable(with = ByteArraySerializer::class)
     val signature: ByteArray
 ) {
     companion object{

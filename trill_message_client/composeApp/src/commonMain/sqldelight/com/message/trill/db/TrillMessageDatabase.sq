@@ -1,28 +1,29 @@
-CREATE TABLE identity_key (
+CREATE TABLE IF NOT EXISTS identity_key (
     public_key BLOB NOT NULL,
     private_key BLOB NOT NULL
 );
 
-CREATE TABLE signed_prekey (
+CREATE TABLE IF NOT EXISTS signed_prekey (
     id INTEGER PRIMARY KEY,
     public_key BLOB NOT NULL,
     private_key BLOB NOT NULL,
     signature BLOB NOT NULL
 );
 
-CREATE TABLE one_time_prekeys (
+CREATE TABLE IF NOT EXISTS one_time_prekeys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     public_key BLOB NOT NULL,
     private_key BLOB NOT NULL
 );
 
-CREATE TABLE user_records (
+CREATE TABLE IF NOT EXISTS user_records (
     user_id TEXT PRIMARY KEY,
+    nickname TEXT,
     is_stale INTEGER NOT NULL DEFAULT 0,
     stale_since INTEGER
 );
 
-CREATE TABLE device_records (
+CREATE TABLE IF NOT EXISTS device_records (
     user_id TEXT NOT NULL,
     device_id TEXT NOT NULL,
     public_key BLOB NOT NULL,
@@ -33,7 +34,7 @@ CREATE TABLE device_records (
     PRIMARY KEY (user_id, device_id)
 );
 
-CREATE TABLE sessions (
+CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     device_id TEXT NOT NULL,
@@ -43,8 +44,9 @@ CREATE TABLE sessions (
     FOREIGN KEY (user_id, device_id) REFERENCES device_records(user_id, device_id)
 );
 
-CREATE TABLE client_info (
+CREATE TABLE IF NOT EXISTS client_info (
     user_email TEXT NOT NULL,
+    user_nickname TEXT,
     device_id TEXT NOT NULL,
     PRIMARY KEY (user_email, device_id)
 );
@@ -53,7 +55,7 @@ selectClientInfo:
 SELECT * FROM client_info;
 
 insertOrReplaceClientInfo:
-INSERT OR REPLACE INTO client_info (user_email, device_id) VALUES (?, ?);
+INSERT OR REPLACE INTO client_info (user_email, user_nickname, device_id) VALUES (?, ?, ?);
 
 selectIdentityKey:
 SELECT * FROM identity_key;
@@ -95,7 +97,7 @@ selectAllUserRecords:
 SELECT * FROM user_records;
 
 insertOrReplaceUserRecord:
-INSERT OR REPLACE INTO user_records (user_id, is_stale, stale_since) VALUES (?, ?, ?);
+INSERT OR REPLACE INTO user_records (user_id, nickname, is_stale, stale_since) VALUES (?, ?, ?, ?);
 
 selectDevicesByUser:
 SELECT * FROM device_records WHERE user_id = ?;

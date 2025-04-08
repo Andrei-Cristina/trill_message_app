@@ -2,10 +2,14 @@ package org.message.trill.encryption.keys
 
 import org.message.trill.encryption.utils.EncryptionUtils
 import kotlinx.serialization.Serializable
+import org.message.trill.encryption.utils.ByteArraySerializer
 
 @Serializable
 data class IdentityKey(
+    @Serializable(with = ByteArraySerializer::class)
     val publicKey: ByteArray,
+
+    @Serializable(with = ByteArraySerializer::class)
     val privateKey: ByteArray
 ) {
     companion object {

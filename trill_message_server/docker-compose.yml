@@ -1,0 +1,34 @@
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: andrei
+      MONGO_INITDB_ROOT_PASSWORD: andrei
+      MONGO_INITDB_DATABASE: trill_message_db
+    volumes:
+      - mongodb_data:/data/db
+    command: mongod --port 27017
+
+#  server:
+#    build:
+#      context: .
+#    container_name: trill_server
+#    ports:
+#      - "8080:8080"
+#    depends_on:
+#      - mongodb
+#    environment:
+#      - DB_MONGO_URL=mongodb://andrei:andrei@mongodb:27017/trill_message_db?maxPoolSize=10
+#      - DB_MONGO_HOST=mongodb
+#      - DB_MONGO_PORT=27017
+#      - DB_MONGO_USER=andrei
+#      - DB_MONGO_PASSWORD=andrei
+#      - DB_MONGO_MAXPOOLSIZE=10
+#      - DB_MONGO_DATABASE_NAME=trill_message
+
+volumes:
+  mongodb_data:
+    driver: local

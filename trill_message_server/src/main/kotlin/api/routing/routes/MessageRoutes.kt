@@ -21,6 +21,7 @@ fun Route.messageRoutes() {
             for (messageWrapper in request.messages) {
                 val message = messageWrapper.message
 
+
                 val senderIdResult = userRepository.getIdByEmail(message.senderId)
                 val recipientIdResult = userRepository.getIdByEmail(message.recipientId)
 
@@ -49,7 +50,12 @@ fun Route.messageRoutes() {
                     return@post
                 }
 
-                call.application.environment.log.info("Received message from ${message.senderId} to ${message.recipientId}")
+                call.application.environment.log.info(
+                    "Received message: " +
+                            "from ${message.senderId} (device: ${message.senderDeviceId}) " +
+                            "to ${message.recipientId} (device: ${message.recipientDeviceId}), " +
+                            "content=${message.content}, timestamp=${message.timestamp}"
+                )
             }
 
             call.respond(HttpStatusCode.OK, "Messages received successfully")

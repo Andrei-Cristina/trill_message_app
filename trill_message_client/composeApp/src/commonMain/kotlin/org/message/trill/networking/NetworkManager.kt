@@ -15,6 +15,8 @@ import org.message.trill.encryption.keys.PreKey
 import org.message.trill.encryption.keys.PrekeyBundle
 import org.message.trill.encryption.keys.SignedPreKey
 import org.message.trill.messaging.models.Message
+import org.message.trill.networking.models.RegisterDeviceRequest
+import org.message.trill.networking.models.RegisterUserRequest
 import java.util.Base64
 
 class NetworkManager {
@@ -28,9 +30,9 @@ class NetworkManager {
     suspend fun registerUser(email: String, nickname: String) {
         client.post("$baseUrl/users") {
             contentType(ContentType.Application.Json)
-            setBody(mapOf(
-                "email" to email,
-                "nickname" to nickname
+            setBody(RegisterUserRequest(
+                email = email,
+                nickname = nickname
             ))
         }
     }
@@ -38,12 +40,12 @@ class NetworkManager {
     suspend fun registerDevice(userEmail: String, identityKey: ByteArray, signedPreKey: SignedPreKey, oneTimePreKeys: List<PreKey>): String {
         val response = client.post("$baseUrl/devices") {
             contentType(ContentType.Application.Json)
-            setBody(mapOf(
-                "userEmail" to userEmail,
-                "identityKey" to identityKey.encodeToBase64(),
-                "signedPreKey" to signedPreKey.preKey.publicKey.encodeToBase64(),
-                "preKeySignature" to signedPreKey.signature.encodeToBase64(),
-                "onetimePreKeys" to oneTimePreKeys.map { it.publicKey.encodeToBase64() }
+            setBody(RegisterDeviceRequest(
+                userEmail = userEmail,
+                identityKey = identityKey,
+                signedPreKey = signedPreKey.preKey.publicKey,
+                preKeySignature = signedPreKey.signature,
+                onetimePreKeys = oneTimePreKeys.map { it.publicKey }
             ))
         }
         return Json.decodeFromString<Map<String, String>>(response.bodyAsText())["deviceId"]
@@ -55,9 +57,8 @@ class NetworkManager {
             contentType(ContentType.Application.Json)
             setBody(userId)
         }
-        val bundle = Json.decodeFromString<PrekeyBundle>(response.bodyAsText())
 
-        return bundle
+        return Json.decodeFromString<PrekeyBundle>(response.bodyAsText())
     }
 
     suspend fun fetchUserDevices(userId: String): Map<String, ByteArray> {

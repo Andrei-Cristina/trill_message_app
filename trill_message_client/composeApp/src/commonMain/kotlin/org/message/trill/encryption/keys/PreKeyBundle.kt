@@ -1,11 +1,19 @@
 package org.message.trill.encryption.keys
 import kotlinx.serialization.Serializable
+import org.message.trill.encryption.utils.ByteArraySerializer
 
 @Serializable
 data class PrekeyBundle(
+    @Serializable(with = ByteArraySerializer::class)
     val identityKey: ByteArray,
+
+    @Serializable(with = ByteArraySerializer::class)
     val signedPreKey: ByteArray,
+
+    @Serializable(with = ByteArraySerializer::class)
     val signature: ByteArray,
+
+    @Serializable(with = ByteArraySerializer::class)
     val oneTimePreKey: ByteArray?
 ) {
     override fun equals(other: Any?): Boolean {
