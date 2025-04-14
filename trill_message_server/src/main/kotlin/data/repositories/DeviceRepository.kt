@@ -1,4 +1,4 @@
-package com.trill.message.data.repositories
+package data.repositories
 
 import com.mongodb.client.MongoCollection
 import com.mongodb.client.MongoDatabase

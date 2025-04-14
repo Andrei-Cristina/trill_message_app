@@ -1,9 +1,7 @@
-package com.trill.message.api.websocket
+package api.websocket
 
-import com.trill.message.data.models.Message
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
-import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import java.util.concurrent.ConcurrentHashMap
 
 object WebSocketHandler {

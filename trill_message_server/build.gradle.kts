@@ -8,7 +8,7 @@ val koin_annotations_version: String by project
 
 plugins {
     kotlin("jvm") version "2.1.10"
-    id("io.ktor.plugin") version "3.1.0"
+    id("io.ktor.plugin") version "3.0.2"
     id("org.jetbrains.kotlin.plugin.serialization") version "2.1.10"
 }
 
@@ -29,27 +29,18 @@ repositories {
 
 dependencies {
     implementation("io.ktor:ktor-server-core")
-
-    implementation("io.ktor:ktor-server-sse")
-
     implementation("io.ktor:ktor-server-netty")
-
     implementation("io.ktor:ktor-server-websockets")
-
     implementation("io.ktor:ktor-server-content-negotiation")
-
     implementation("io.ktor:ktor-serialization-kotlinx-json")
-
     implementation("io.ktor:ktor-server-openapi")
     implementation("io.ktor:ktor-server-call-logging")
     implementation("io.ktor:ktor-server-swagger")
+    //implementation("io.ktor:ktor-server-config-yaml")
 
-    implementation("io.ktor:ktor-server-config-yaml")
-
-    implementation("io.insert-koin:koin-ktor:$koin_version")
-    implementation("io.insert-koin:koin-logger-slf4j:$koin_version")
-
-    implementation("io.github.flaxoos:ktor-server-rate-limiting:2.1.2")
+    implementation("io.insert-koin:koin-ktor:3.5.6")
+    implementation("io.insert-koin:koin-logger-slf4j:3.5.6")
+    //implementation("io.github.flaxoos:ktor-server-rate-limiting:1.0.2")
 
     implementation("org.mongodb:mongodb-driver-core:$mongo_version")
     implementation("org.mongodb:mongodb-driver-sync:$mongo_version")
@@ -62,6 +53,7 @@ dependencies {
 
     implementation("ch.qos.logback:logback-classic:$logback_version")
 
-    testImplementation("io.ktor:ktor-server-test-host")
+    testImplementation("io.ktor:ktor-server-test-host-jvm")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:$kotlin_version")
+
 }

@@ -1,12 +1,5 @@
-package com.trill.message.api.websocket.routes
+package api.websocket.routes
 
-import com.trill.message.api.websocket.WebSocketHandler
-import com.trill.message.data.models.Message
-import io.ktor.server.response.*
-import io.ktor.server.routing.*
-import io.ktor.server.websocket.*
-import io.ktor.websocket.*
-import kotlinx.serialization.json.Json
 /*
 fun Route.messageRoutes() {
     webSocket("/ws") {

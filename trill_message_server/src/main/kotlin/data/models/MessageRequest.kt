@@ -1,5 +1,6 @@
-package com.trill.message.data.models
+package data.models
 
+import data.models.MessageWrapper
 import kotlinx.serialization.Serializable
 
 @Serializable

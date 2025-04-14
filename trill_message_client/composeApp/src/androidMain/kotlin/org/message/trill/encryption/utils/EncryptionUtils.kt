@@ -50,6 +50,7 @@ actual object EncryptionUtils {
         privateKey[31] = (privateKey[31].toInt() or 64).toByte()
 
         val publicKey = x25519BasePointMult(privateKey)
+
         return privateKey to publicKey
     }
 

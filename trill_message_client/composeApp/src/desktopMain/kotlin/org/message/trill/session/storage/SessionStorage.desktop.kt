@@ -20,13 +20,13 @@ actual class SessionStorage {
         TrillMessageDatabase.Schema.create(driver)
         database = TrillMessageDatabase(driver)
 
-        if (database.trillMessageDatabaseQueries.selectClientInfo().executeAsOneOrNull() == null) {
-            database.trillMessageDatabaseQueries.insertOrReplaceClientInfo(
-                user_email = "user@example.com",
-                user_nickname = "nickname",
-                device_id = "desktop-device-1"
-            )
-        }
+//        if (database.trillMessageDatabaseQueries.selectClientInfo().executeAsOneOrNull() == null) {
+//            database.trillMessageDatabaseQueries.insertOrReplaceClientInfo(
+//                user_email = "user@example.com",
+//                user_nickname = "nickname",
+//                device_id = "desktop-device-1"
+//            )
+//        }
     }
 
     actual fun getIdentityKey(): IdentityKey? {

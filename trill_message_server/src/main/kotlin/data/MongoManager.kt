@@ -1,4 +1,4 @@
-package com.trill.message.data
+package data
 
 import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
@@ -8,7 +8,7 @@ import io.ktor.server.config.*
 /**
  * Establishes connection with a MongoDB database.
  *
- * The following configuration properties (in application.yaml/application.conf) can be specified:
+ * The following configuration properties (in application.conf/application.conf) can be specified:
  * * `db.mongo.user` username for your database
  * * `db.mongo.password` password for the user
  * * `db.mongo.host` host that will be used for the database connection
@@ -60,7 +60,7 @@ fun Application.connectToMongoDB(): MongoDatabase {
     val mongoClient = MongoClients.create(uri)
     val database = mongoClient.getDatabase(databaseName)
 
-    monitor.subscribe(ApplicationStopped) {
+    environment.monitor.subscribe(ApplicationStopped) {
         mongoClient.close()
     }
 

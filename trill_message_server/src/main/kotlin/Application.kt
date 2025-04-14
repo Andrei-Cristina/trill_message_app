@@ -1,11 +1,9 @@
-package com.trill.message
-
-import com.trill.message.api.routing.configureRouting
-import com.trill.message.api.websocket.configureSockets
-import com.trill.message.data.connectToMongoDB
-import com.trill.message.data.repositories.DeviceRepository
-import com.trill.message.data.repositories.UserRepository
-import com.trill.message.utils.AuthUtils
+import api.routing.configureRouting
+import api.websocket.configureSockets
+import data.connectToMongoDB
+import data.repositories.DeviceRepository
+import data.repositories.UserRepository
+import utils.AuthUtils
 import io.ktor.server.application.*
 import org.koin.dsl.module
 import org.koin.ktor.plugin.Koin
@@ -18,6 +16,7 @@ fun main(args: Array<String>) {
 fun Application.module() {
     configureAdministration()
     configureSerialization()
+    //configureMonitoring()
 
     install(Koin) {
         slf4jLogger()

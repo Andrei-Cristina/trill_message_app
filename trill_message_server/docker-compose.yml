@@ -10,7 +10,7 @@ services:
       MONGO_INITDB_DATABASE: trill_message_db
     volumes:
       - mongodb_data:/data/db
-    command: mongod --port 27017
+    command: mongod --port 27017 --auth
 
 #  server:
 #    build:

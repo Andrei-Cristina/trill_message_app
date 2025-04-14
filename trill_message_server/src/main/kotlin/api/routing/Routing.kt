@@ -1,17 +1,15 @@
-package com.trill.message.api.routing
+package api.routing
 
-import com.trill.message.api.routing.routes.authRoutes
-import com.trill.message.api.routing.routes.deviceRoutes
-import com.trill.message.api.routing.routes.messageRoutes
+import api.routing.routes.authRoutes
+import api.routing.routes.deviceRoutes
+import api.routing.routes.messageRoutes
 //import com.trill.message.api.websocket.routes.messageRoutes
-import com.trill.message.api.routing.routes.userRoutes
+import api.routing.routes.userRoutes
 import io.ktor.server.application.*
 import io.ktor.server.routing.*
-import io.ktor.server.sse.*
-import io.ktor.server.websocket.*
 
 fun Application.configureRouting() {
-    install(SSE)
+    //install(SSE)
 
     routing {
         authRoutes()

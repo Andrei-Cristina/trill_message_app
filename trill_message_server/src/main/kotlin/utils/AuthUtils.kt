@@ -1,4 +1,4 @@
-package com.trill.message.utils
+package utils
 
 import java.util.concurrent.ConcurrentHashMap
 

@@ -1,11 +1,9 @@
-package com.trill.message.data.models
+package data.models
 
-import io.ktor.util.date.*
-import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.bson.Document
-import org.bson.types.ObjectId
 
 @Serializable
 data class User(
