@@ -2,10 +2,12 @@ package org.message.trill
 
 import org.message.trill.encryption.keys.KeyManager
 import org.message.trill.networking.NetworkManager
+import org.message.trill.networking.models.LoginRequest
 import org.message.trill.session.sesame.DeviceRecord
 import org.message.trill.session.sesame.SesameManager
 import org.message.trill.session.sesame.UserRecord
 import org.message.trill.session.storage.SessionStorage
+import java.util.*
 
 actual class MessageClient actual constructor(
     private val userId: String
@@ -23,6 +25,7 @@ actual class MessageClient actual constructor(
     }
 
     actual suspend fun registerDevice(email: String, nickname: String) {
+        println("Pulait")
         val identityKey = keyManager.generateIdentityKey()
         sessionStorage.storeIdentityKey(identityKey)
 
@@ -47,5 +50,16 @@ actual class MessageClient actual constructor(
         return messages.map { message ->
             sesameManager.receiveMessage(message)
         }
+    }
+
+    actual suspend fun loginUser(email: String, nickname: String): String {
+        val deviceId = sessionStorage.loadDeviceId()
+
+        val identityKey = sessionStorage.getDevicePublicKey(deviceId)
+            ?: throw Exception("No device public key found for deviceId: $deviceId")
+        println("identityKey: $identityKey")
+
+        return networkManager.login(email, nickname, identityKey)
+            ?: throw Exception("Login failed: Device not registered")
     }
 }

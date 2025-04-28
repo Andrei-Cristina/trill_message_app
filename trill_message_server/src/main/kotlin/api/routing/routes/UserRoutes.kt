@@ -1,5 +1,6 @@
 package api.routing.routes
 
+import data.models.LoginRequest
 import data.models.User
 import data.models.UserRegisterRequest
 import data.repositories.DeviceRepository
@@ -14,6 +15,41 @@ import org.koin.ktor.ext.inject
 fun Route.userRoutes() {
     val userRepository: UserRepository by application.inject()
     val deviceRepository: DeviceRepository by application.inject()
+
+    route("/login") {
+        post {
+            val loginRequest = try {
+                call.receive<LoginRequest>()
+            } catch (e: Exception) {
+                call.application.environment.log.warn("Invalid login request: ${e.message}", e)
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid login data"))
+                return@post
+            }
+
+            val userId = userRepository.getByEmail(loginRequest.email).fold(
+                onSuccess = { it },
+                onFailure = { e ->
+                    call.application.environment.log.warn("Login failed for email: ${loginRequest.email}. Error: ${e.message}")
+                    call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Invalid email"))
+                    return@post
+                }
+            )
+
+            call.application.environment.log.info("$loginRequest")
+
+            val deviceId = deviceRepository.getById(loginRequest.identityKey).fold(
+                onSuccess = { it },
+                onFailure = { e ->
+                    call.application.environment.log.info("Device not found for user ID: $userId, identityKey: ${loginRequest.identityKey}")
+                    call.respond(HttpStatusCode.NotFound, mapOf("error" to "Device not registered"))
+                    return@post
+                }
+            )
+
+            call.respond(HttpStatusCode.OK, mapOf("deviceId" to deviceId.toString()))
+            call.application.environment.log.info("Successfully logged in user with email: ${loginRequest.email}, deviceId: $deviceId")
+        }
+    }
 
     route("/users") {
         get {

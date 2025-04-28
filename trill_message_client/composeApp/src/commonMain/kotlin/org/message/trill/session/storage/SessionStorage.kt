@@ -30,4 +30,5 @@ expect class SessionStorage {
     fun loadUserEmail(): String
     fun loadDeviceId(): String
     fun setClientInfo(userEmail: String, userNickname:String, deviceId: String)
+    fun getDevicePublicKey(deviceId: String): ByteArray?
 }

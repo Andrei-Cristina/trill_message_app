@@ -15,14 +15,36 @@ fun App(clientFactory: (String) -> MessageClient) {
         val scope = rememberCoroutineScope()
 
         if (!isRegistered || client == null) {
-            RegistrationScreen { email, nickname ->
-                client = clientFactory(email)
-                scope.launch {
-                    client?.registerUser(email, nickname)
-                    client?.registerDevice(email, nickname)
-                    isRegistered = true
+            RegistrationScreen(
+                onRegister = { email, nickname ->
+                    client = clientFactory(email)
+                    scope.launch {
+                        try {
+                            client?.registerUser(email, nickname)
+                            client?.registerDevice(email, nickname)
+                            isRegistered = true
+                        } catch (e: Exception) {
+                            println("Registration failed: ${e.message}")
+                        }
+                    }
+                },
+                onLogin = { email, nickname ->
+                    client = clientFactory(email)
+                    scope.launch {
+                        try {
+                            val deviceId = client?.loginUser(email, nickname)
+                            if (deviceId != null) {
+                                isRegistered = true
+                            } else {
+                                client?.registerDevice(email, nickname)
+                                isRegistered = true
+                            }
+                        } catch (e: Exception) {
+                            println("Login failed: ${e.message}")
+                        }
+                    }
                 }
-            }
+            )
         } else {
             MainScreen(client!!)
         }

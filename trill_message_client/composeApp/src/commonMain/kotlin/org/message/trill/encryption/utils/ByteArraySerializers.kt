@@ -9,7 +9,7 @@ import kotlinx.serialization.encoding.Encoder
 import java.util.Base64
 
 object ByteArraySerializer : KSerializer<ByteArray> {
-    override val descriptor = PrimitiveSerialDescriptor("ByteArray", PrimitiveKind.STRING)
+    override val descriptor = PrimitiveSerialDescriptor("CustomByteArray", PrimitiveKind.STRING)
 
     override fun serialize(encoder: Encoder, value: ByteArray) {
         encoder.encodeString(Base64.getEncoder().encodeToString(value))

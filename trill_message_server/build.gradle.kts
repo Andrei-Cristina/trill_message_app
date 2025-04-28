@@ -4,11 +4,12 @@ val logback_version: String by project
 val mongo_version: String by project
 val postgres_version: String by project
 val koin_version: String by project
+val ktor_version: String by project
 val koin_annotations_version: String by project
 
 plugins {
     kotlin("jvm") version "2.1.10"
-    id("io.ktor.plugin") version "3.0.2"
+    id("io.ktor.plugin") version "2.3.12"
     id("org.jetbrains.kotlin.plugin.serialization") version "2.1.10"
 }
 
@@ -28,32 +29,51 @@ repositories {
 }
 
 dependencies {
-    implementation("io.ktor:ktor-server-core")
-    implementation("io.ktor:ktor-server-netty")
-    implementation("io.ktor:ktor-server-websockets")
-    implementation("io.ktor:ktor-server-content-negotiation")
-    implementation("io.ktor:ktor-serialization-kotlinx-json")
-    implementation("io.ktor:ktor-server-openapi")
-    implementation("io.ktor:ktor-server-call-logging")
-    implementation("io.ktor:ktor-server-swagger")
-    //implementation("io.ktor:ktor-server-config-yaml")
+    implementation("io.ktor:ktor-server-core:$ktor_version")
+    implementation("io.ktor:ktor-server-netty:$ktor_version")
+    implementation("io.ktor:ktor-server-websockets:$ktor_version")
+    implementation("io.ktor:ktor-server-content-negotiation:$ktor_version")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:$ktor_version")
+    implementation("io.ktor:ktor-server-openapi:$ktor_version")
+    implementation("io.ktor:ktor-server-call-logging:$ktor_version")
+    implementation("io.ktor:ktor-server-swagger:$ktor_version")
 
-    implementation("io.insert-koin:koin-ktor:3.5.6")
-    implementation("io.insert-koin:koin-logger-slf4j:3.5.6")
-    //implementation("io.github.flaxoos:ktor-server-rate-limiting:1.0.2")
+    // Koin for dependency injection
+    implementation("io.insert-koin:koin-ktor:$koin_version")
+    implementation("io.insert-koin:koin-logger-slf4j:$koin_version")
 
-    implementation("org.mongodb:mongodb-driver-core:$mongo_version")
+    // MongoDB driver
     implementation("org.mongodb:mongodb-driver-sync:$mongo_version")
+    implementation("org.mongodb:mongodb-driver-core:$mongo_version")
     implementation("org.mongodb:bson:$mongo_version")
 
+    // Other dependencies
     implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.2")
-
     implementation("com.ucasoft.ktor:ktor-simple-cache:0.53.4")
     implementation("com.ucasoft.ktor:ktor-simple-redis-cache:0.53.4")
 
+    // Logging
     implementation("ch.qos.logback:logback-classic:$logback_version")
 
-    testImplementation("io.ktor:ktor-server-test-host-jvm")
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:$kotlin_version")
+    // Serialization
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3") // Match Ktor 2.3.12 recommendation
 
+    // Testing
+    testImplementation("io.ktor:ktor-server-test-host:$ktor_version")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:$kotlin_version")
+}
+
+configurations.all {
+    resolutionStrategy {
+        force("io.ktor:ktor-server-core:$ktor_version")
+        force("io.ktor:ktor-http:$ktor_version")
+        force("io.ktor:ktor-utils:$ktor_version")
+        force("io.ktor:ktor-websockets:$ktor_version")
+        force("io.ktor:ktor-events:$ktor_version")
+        force("io.ktor:ktor-serialization:$ktor_version")
+        force("io.ktor:ktor-http-cio:$ktor_version")
+        force("io.ktor:ktor-network:$ktor_version")
+        force("io.ktor:ktor-io:$ktor_version")
+        force("io.ktor:ktor-server-host-common:$ktor_version")
+    }
 }

@@ -10,6 +10,7 @@ import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.util.*
 import io.ktor.util.date.*
 import org.koin.ktor.ext.inject
 
@@ -56,10 +57,10 @@ fun Route.deviceRoutes() {
                                 onSuccess = {
                                     bundleList.add(
                                         DeviceKeyBundle(
-                                            device.identityKey,
-                                            device.signedPreKey,
-                                            device.preKeySignature,
-                                            oneTimePreKey
+                                            device.identityKey.encodeBase64(),
+                                            device.signedPreKey.encodeBase64(),
+                                            device.preKeySignature.encodeBase64(),
+                                            oneTimePreKey.encodeBase64()
                                         )
                                     )
                                 },
@@ -157,7 +158,7 @@ fun Route.deviceRoutes() {
             val registerBundle = try {
                 call.receive<DeviceRegistrationBundle>()
             } catch (e: Exception) {
-                call.application.environment.log.warn("Invalid device registration request: {}", e.message)
+                call.application.environment.log.error("Invalid device registration request: {${e.message}}", e)
                 call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid or missing device registration data"))
                 return@post
             }
@@ -180,13 +181,15 @@ fun Route.deviceRoutes() {
                 }
             )
 
+            call.application.environment.log.info("Creating device with identity key {}", registerBundle.identityKey.toString())
+
             deviceRepository.create(
                 Device(
                     userId = userId,
-                    identityKey = registerBundle.identityKey,
-                    signedPreKey = registerBundle.signedPreKey,
-                    preKeySignature = registerBundle.preKeySignature,
-                    onetimePreKeys = registerBundle.onetimePreKeys,
+                    identityKey = registerBundle.identityKey.encodeBase64(),
+                    signedPreKey = registerBundle.signedPreKey.encodeBase64(),
+                    preKeySignature = registerBundle.preKeySignature.encodeBase64(),
+                    onetimePreKeys = registerBundle.onetimePreKeys.map { it.encodeBase64() },
                     isPrimary = false,
                     isOnline = false,
                     lastOnline = GMTDate().toString()

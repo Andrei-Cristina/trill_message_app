@@ -15,8 +15,10 @@ import org.message.trill.encryption.keys.PreKey
 import org.message.trill.encryption.keys.PrekeyBundle
 import org.message.trill.encryption.keys.SignedPreKey
 import org.message.trill.messaging.models.Message
-import org.message.trill.networking.models.RegisterDeviceRequest
+import org.message.trill.networking.models.DeviceRegistrationBundle
+import org.message.trill.networking.models.LoginRequest
 import org.message.trill.networking.models.RegisterUserRequest
+import org.slf4j.LoggerFactory
 import java.util.Base64
 
 class NetworkManager {
@@ -31,6 +33,34 @@ class NetworkManager {
     }
     private val baseUrl = "http://0.0.0.0:8080"
 
+    suspend fun login(
+        userEmail: String,
+        nickname: String,
+        identityKey: ByteArray
+    ): String? {
+        val loginRequest = LoginRequest(
+            email = userEmail,
+            nickname = nickname,
+            identityKey = identityKey
+        )
+
+        val response = client.post("$baseUrl/login") {
+            contentType(ContentType.Application.Json)
+            setBody(loginRequest)
+        }
+
+        return when (response.status) {
+            HttpStatusCode.OK -> {
+                val body = response.bodyAsText()
+                Json.decodeFromString<Map<String, String>>(body)["deviceId"]
+                    ?: throw Exception("Device ID not returned: $body")
+            }
+            HttpStatusCode.NotFound -> null
+            HttpStatusCode.Unauthorized -> throw Exception("Invalid email or nickname: ${response.bodyAsText()}")
+            else -> throw Exception("Unexpected response: ${response.status} - ${response.bodyAsText()}")
+        }
+    }
+
     suspend fun registerUser(email: String, nickname: String) {
         client.post("$baseUrl/users") {
             contentType(ContentType.Application.Json)
@@ -42,16 +72,23 @@ class NetworkManager {
     }
 
     suspend fun registerDevice(userEmail: String, identityKey: ByteArray, signedPreKey: SignedPreKey, oneTimePreKeys: List<PreKey>): String {
+        val logger = LoggerFactory.getLogger("Client")
+
+        val bundle = DeviceRegistrationBundle(
+            userEmail = userEmail,
+            identityKey = identityKey,
+            signedPreKey = signedPreKey.preKey.publicKey,
+            preKeySignature = signedPreKey.signature,
+            onetimePreKeys = oneTimePreKeys.map { it.publicKey }
+        )
+
         val response: HttpResponse = client.post("$baseUrl/devices") {
             contentType(ContentType.Application.Json)
-            setBody(RegisterDeviceRequest(
-                userEmail = userEmail,
-                identityKey = identityKey,
-                signedPreKey = signedPreKey.preKey.publicKey,
-                preKeySignature = signedPreKey.signature,
-                onetimePreKeys = oneTimePreKeys.map { it.publicKey }
-            ))
+            setBody(bundle)
         }
+
+        val jsonPayload = Json.encodeToString(bundle)
+        logger.info("Sending JSON to server: $jsonPayload")
 
         when (response.status) {
             HttpStatusCode.Created -> {

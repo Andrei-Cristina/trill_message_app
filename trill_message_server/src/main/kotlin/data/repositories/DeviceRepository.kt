@@ -6,16 +6,24 @@ import com.mongodb.client.model.Filters
 import com.mongodb.client.model.FindOneAndUpdateOptions
 import com.mongodb.client.model.ReturnDocument
 import com.trill.message.data.models.Device
+import io.ktor.server.application.*
+import io.ktor.util.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import org.bson.Document
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import java.util.*
+import kotlin.NoSuchElementException
 
 class DeviceRepository(): KoinComponent {
     private val database: MongoDatabase by inject()
     private var collection: MongoCollection<Document>
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
 
     init {
         database.createCollection("devices")
@@ -26,6 +34,7 @@ class DeviceRepository(): KoinComponent {
         kotlin.runCatching {
             val doc = item.toDocument()
             collection.insertOne(doc)
+            println("inserted device: $doc")
             doc["_id"].toString()
         }
     }
@@ -43,12 +52,12 @@ class DeviceRepository(): KoinComponent {
         }
     }
 
-    suspend fun getById(id: String): Result<Device> = withContext(Dispatchers.IO) {
+    suspend fun getById(id: ByteArray): Result<Device> = withContext(Dispatchers.IO) {
         kotlin.runCatching {
-            collection.find(Filters.eq("identityKey", id))
+            collection.find(Filters.eq("identityKey", id.encodeBase64()))
                 .first()
                 ?.let { document ->
-                    Json.decodeFromString<Device>(document.toJson())
+                    json.decodeFromString<Device>(document.toJson())
                 } ?: throw NoSuchElementException("Device identity is invalid")
         }
     }
@@ -58,7 +67,7 @@ class DeviceRepository(): KoinComponent {
             collection.find(Filters.and(Filters.eq("userId", userId), Filters.eq("isPrimary", true)))
                 .first()
                 ?.let { document ->
-                    Json.decodeFromString<Device>(document.toJson())
+                    json.decodeFromString<Device>(document.toJson())
                 } ?: throw NoSuchElementException("Primary device not found!")
         }
     }

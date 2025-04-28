@@ -1,26 +1,30 @@
 package org.message.trill.ui
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.Button
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.OutlinedTextField
-import androidx.compose.material.Text
+import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun RegistrationScreen(onRegister: (String, String) -> Unit) {
+fun RegistrationScreen(
+    onRegister: (String, String) -> Unit,
+    onLogin: (String, String) -> Unit
+) {
     var email by remember { mutableStateOf("") }
     var nickname by remember { mutableStateOf("") }
+    var isLoginMode by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("Register", style = MaterialTheme.typography.h4)
+        Text(
+            text = if (isLoginMode) "Login" else "Register",
+            style = MaterialTheme.typography.h4
+        )
         Spacer(modifier = Modifier.height(16.dp))
 
         OutlinedTextField(
@@ -39,11 +43,33 @@ fun RegistrationScreen(onRegister: (String, String) -> Unit) {
         )
         Spacer(modifier = Modifier.height(16.dp))
 
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(bottom = 16.dp)
+        ) {
+            RadioButton(
+                selected = !isLoginMode,
+                onClick = { isLoginMode = false }
+            )
+            Text("Register", modifier = Modifier.padding(end = 16.dp))
+            RadioButton(
+                selected = isLoginMode,
+                onClick = { isLoginMode = true }
+            )
+            Text("Login")
+        }
+
         Button(
-            onClick = { onRegister(email, nickname) },
+            onClick = {
+                if (isLoginMode) {
+                    onLogin(email, nickname)
+                } else {
+                    onRegister(email, nickname)
+                }
+            },
             enabled = email.isNotBlank() && nickname.isNotBlank()
         ) {
-            Text("Register")
+            Text(if (isLoginMode) "Login" else "Register")
         }
     }
 }

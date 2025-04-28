@@ -14,6 +14,7 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
+import kotlinx.serialization.json.Json
 import java.sql.Connection
 import java.sql.DriverManager
 import java.time.Duration
@@ -23,7 +24,12 @@ import org.slf4j.event.*
 
 fun Application.configureSerialization() {
     install(ContentNegotiation) {
-        json()
+        json(Json {
+            isLenient = true
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+            prettyPrint = true
+        })
     }
 
 }

@@ -18,6 +18,10 @@ import java.util.regex.Pattern
 class UserRepository : KoinComponent {
     private val database: MongoDatabase by inject()
     private var collection: MongoCollection<Document>
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
 
     init {
         database.createCollection("users")
@@ -43,7 +47,7 @@ class UserRepository : KoinComponent {
             collection.find(Filters.eq("_id", ObjectId(id)))
                 .first()
                 ?.let { document ->
-                    Json.decodeFromString<User>(document.toJson())
+                    json.decodeFromString<User>(document.toJson())
                 } ?: throw NoSuchElementException("User with id $id not found")
         }
     }
@@ -53,7 +57,7 @@ class UserRepository : KoinComponent {
             collection.find(Filters.eq("email", email))
                 .first()
                 ?.let { document ->
-                    Json.decodeFromString<User>(document.toJson())
+                    json.decodeFromString<User>(document.toJson())
                 } ?: throw NoSuchElementException("User with email $email not found")
         }
     }
@@ -73,7 +77,7 @@ class UserRepository : KoinComponent {
             val regex = Pattern.compile(".*${Pattern.quote(nickname)}.*", Pattern.CASE_INSENSITIVE)
             collection.find(Filters.regex("nickname", regex))
                 .map { document ->
-                    Json.decodeFromString<User>(document.toJson())
+                    json.decodeFromString<User>(document.toJson())
                 }
                 .toList()
         }

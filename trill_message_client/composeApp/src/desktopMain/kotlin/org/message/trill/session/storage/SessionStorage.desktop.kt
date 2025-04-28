@@ -11,6 +11,8 @@ import org.message.trill.encryption.keys.SignedPreKey
 import org.message.trill.session.sesame.DeviceRecord
 import org.message.trill.session.sesame.Session
 import org.message.trill.session.sesame.UserRecord
+import java.util.*
+import kotlin.NoSuchElementException
 
 actual class SessionStorage {
     private val driver: SqlDriver = JdbcSqliteDriver("jdbc:sqlite:app.db")
@@ -204,4 +206,15 @@ actual class SessionStorage {
     actual fun setClientInfo(userEmail: String, userNickname:String, deviceId: String) {
         database.trillMessageDatabaseQueries.insertOrReplaceClientInfo(userEmail, userNickname, deviceId)
     }
+
+    actual fun getDevicePublicKey(deviceId: String): ByteArray? {
+        val publicKey = database.trillMessageDatabaseQueries.selectDevicesByUser(user_id = loadUserEmail())
+            .executeAsList()
+            .find { it.device_id == deviceId }
+            ?.public_key
+        println("Retrieved device publicKey for deviceId=$deviceId: ${publicKey?.encodeToBase64()}")
+        return publicKey
+    }
+
+    private fun ByteArray.encodeToBase64(): String = Base64.getEncoder().encodeToString(this)
 }
