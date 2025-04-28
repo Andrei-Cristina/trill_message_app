@@ -2,40 +2,23 @@ package org.message.trill.encryption.keys
 
 import org.message.trill.session.storage.SessionStorage
 
-
 class KeyManager(private val storage: SessionStorage) {
-    //TODO "Add more key management operations"
+    fun generateIdentityKey(): IdentityKey =
+        IdentityKey.generate()
 
-    fun generateIdentityKey(): IdentityKey {
-        val key = IdentityKey.generate()
+    fun getIdentityKey(userEmail: String): IdentityKey = storage.getIdentityKey(userEmail)
+        ?: throw IllegalStateException("No identity key found for $userEmail")
 
-        //storage.storeIdentityKey(key)
+    fun generateSignedPreKey(): SignedPreKey = SignedPreKey.generate()
 
-        return key
-    }
+    fun getSignedPreKey(userEmail: String): SignedPreKey = storage.getSignedPreKey(userEmail)
+        ?: throw IllegalStateException("No signed pre-key found for $userEmail")
 
-    fun getIdentityKey(): IdentityKey = storage.getIdentityKey()!!
+    fun generateOneTimePreKeys(count: Int): List<PreKey> = (1..count).map { PreKey.generate(it) }
 
-    fun generateSignedPreKey(): SignedPreKey {
-        val key = SignedPreKey.generate()
-        //storage.storeSignedPreKey(key)
+    fun getOneTimePreKey(userEmail: String): PreKey = storage.getOneTimePreKey(userEmail)
 
-        return key
-    }
-
-    fun getSignedPreKey(): SignedPreKey = storage.getSignedPreKey()!!
-
-    fun generateOneTimePreKeys(count: Int): List<PreKey>{
-        val keys = (1..count).map { PreKey.generate(it) }
-
-        //storage.storeOneTimePreKeys(keys)
-
-        return keys
-    }
-
-    fun getOnetimePreKey():PreKey = storage.getOneTimePreKey()
-
-    fun deleteOnetimePreKey(id: Int){
-        storage.removeOneTimePreKey(id)
+    fun deleteOneTimePreKey(userEmail: String, id: Int) {
+        storage.removeOneTimePreKey(userEmail, id)
     }
 }

@@ -3,6 +3,7 @@ package api.routing.routes
 import data.models.Message
 import data.models.MessageRequest
 import data.repositories.DeviceRepository
+import data.repositories.MessageRepository
 import data.repositories.UserRepository
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -14,6 +15,7 @@ import org.koin.ktor.ext.inject
 fun Route.messageRoutes() {
     val userRepository: UserRepository by inject()
     val deviceRepository: DeviceRepository by inject()
+    val messageRepository: MessageRepository by inject()
 
     route("/messages") {
         post {
@@ -27,43 +29,41 @@ fun Route.messageRoutes() {
                     message.senderId, message.senderDeviceId, message.recipientId, message.recipientDeviceId
                 )
 
-                val senderIdResult = userRepository.getIdByEmail(message.senderId)
-                val recipientIdResult = userRepository.getIdByEmail(message.recipientId)
-
-                if (senderIdResult.isFailure) {
+                if (!userRepository.getByEmail(message.senderId).isSuccess) {
                     call.application.environment.log.warn("Sender not found: {}", message.senderId)
                     call.respond(HttpStatusCode.NotFound, "Sender not found: ${message.senderId}")
                     return@post
                 }
 
-                if (recipientIdResult.isFailure) {
+                if (!userRepository.getByEmail(message.recipientId).isSuccess) {
                     call.application.environment.log.warn("Recipient not found: {}", message.recipientId)
                     call.respond(HttpStatusCode.NotFound, "Recipient not found: ${message.recipientId}")
                     return@post
                 }
 
-                val senderId = senderIdResult.getOrThrow()
-                val recipientId = recipientIdResult.getOrThrow()
+                val senderDevices = deviceRepository.getAllDevices(message.senderId).getOrElse { emptyList() }
+                val recipientDevices = deviceRepository.getAllDevices(message.recipientId).getOrElse { emptyList() }
 
-                val senderDevices = deviceRepository.getAllDevices(senderId).getOrElse { emptyList() }
-                val recipientDevices = deviceRepository.getAllDevices(recipientId).getOrElse { emptyList() }
-
-                if (senderDevices.none { it.identityKey.toString() == message.senderDeviceId }) {
+                if (senderDevices.none { it.identityKey == message.senderDeviceId }) {
                     call.application.environment.log.warn("Sender device not found: {} for sender: {}", message.senderDeviceId, message.senderId)
                     call.respond(HttpStatusCode.NotFound, "Sender device not found: ${message.senderDeviceId}")
                     return@post
                 }
-                if (recipientDevices.none { it.identityKey.toString() == message.recipientDeviceId }) {
+                if (recipientDevices.none { it.identityKey == message.recipientDeviceId }) {
                     call.application.environment.log.warn("Recipient device not found: {} for recipient: {}", message.recipientDeviceId, message.recipientId)
                     call.respond(HttpStatusCode.NotFound, "Recipient device not found: ${message.recipientDeviceId}")
                     return@post
                 }
 
-                call.application.environment.log.info(
-                    "Received message: " +
-                            "from ${message.senderId} (device: ${message.senderDeviceId}) " +
-                            "to ${message.recipientId} (device: ${message.recipientDeviceId}), " +
-                            "content=${message.content}, timestamp=${message.timestamp}"
+                messageRepository.create(message).fold(
+                    onSuccess = { id ->
+                        call.application.environment.log.info("Stored message with ID: $id")
+                    },
+                    onFailure = { e ->
+                        call.application.environment.log.error("Failed to store message: $e")
+                        call.respond(HttpStatusCode.InternalServerError, "Failed to store message")
+                        return@post
+                    }
                 )
             }
 
@@ -76,17 +76,22 @@ fun Route.messageRoutes() {
             val deviceId = call.parameters["deviceId"]!!
             call.application.environment.log.info("Fetching messages for user: {} and device: {}", userId, deviceId)
 
-            val recipientId = userRepository.getIdByEmail(userId).fold(
-                onSuccess = { it },
+            if (!userRepository.getByEmail(userId).isSuccess) {
+                call.application.environment.log.warn("User not found: {}", userId)
+                call.respond(HttpStatusCode.NotFound, "User not found: $userId")
+                return@get
+            }
+
+            messageRepository.getByRecipient(userId, deviceId).fold(
+                onSuccess = { messages ->
+                    call.respond(HttpStatusCode.OK, messages)
+                    call.application.environment.log.info("Returned {} messages for user: {} and device: {}", messages.size, userId, deviceId)
+                },
                 onFailure = { e ->
-                    call.application.environment.log.warn("User not found: {}. Error: {}", userId, e.message)
-                    return@get call.respond(HttpStatusCode.NotFound, "User not found: $userId")
+                    call.application.environment.log.error("Failed to fetch messages: $e")
+                    call.respond(HttpStatusCode.InternalServerError, "Error fetching messages: $e")
                 }
             )
-
-            val messages = listOf<Message>()
-            call.respond(HttpStatusCode.OK, messages)
-            call.application.environment.log.info("Returned {} messages for user ID: {} and device: {}", messages.size, recipientId, deviceId)
         }
     }
 }

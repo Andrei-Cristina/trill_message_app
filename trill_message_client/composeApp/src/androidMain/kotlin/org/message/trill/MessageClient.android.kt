@@ -1,6 +1,6 @@
 package org.message.trill
 
-actual class MessageClient actual constructor(userId: String) {
+actual class MessageClient actual constructor() {
     actual suspend fun registerUser(email: String, nickname: String) {
     }
 

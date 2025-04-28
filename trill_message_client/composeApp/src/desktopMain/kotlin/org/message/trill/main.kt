@@ -5,8 +5,6 @@ import androidx.compose.ui.window.application
 
 fun main() = application {
     Window(onCloseRequest = ::exitApplication, title = "Trill Message Beta") {
-        App { email->
-            MessageClient(email)
-        }
+        App()
     }
 }

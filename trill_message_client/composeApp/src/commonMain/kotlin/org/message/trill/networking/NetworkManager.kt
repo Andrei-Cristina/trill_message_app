@@ -14,8 +14,10 @@ import kotlinx.serialization.json.Json
 import org.message.trill.encryption.keys.PreKey
 import org.message.trill.encryption.keys.PrekeyBundle
 import org.message.trill.encryption.keys.SignedPreKey
+import org.message.trill.encryption.utils.models.User
 import org.message.trill.messaging.models.Message
 import org.message.trill.networking.models.DeviceRegistrationBundle
+import org.message.trill.networking.models.EmailSearchRequest
 import org.message.trill.networking.models.LoginRequest
 import org.message.trill.networking.models.RegisterUserRequest
 import org.slf4j.LoggerFactory
@@ -149,12 +151,56 @@ class NetworkManager {
     }
 
     suspend fun fetchMessages(userId: String, deviceId: String): List<Message> {
-        val response = client.get("$baseUrl/messages/$userId/$deviceId")
+        val response = client.get("$baseUrl/messages/$userId/$deviceId") {
+            contentType(ContentType.Application.Json)
+        }
 
         return Json.decodeFromString(response.bodyAsText())
     }
 
+    suspend fun searchUsersByEmail(email: String): List<String> {
+        try {
+            val response = client.post("$baseUrl/users/search") {
+                contentType(ContentType.Application.Json)
+                setBody(EmailSearchRequest(email))
+            }
+            val body = response.bodyAsText()
+            println("Search users response: status=${response.status}, body=$body")
+
+            return when (response.status) {
+                HttpStatusCode.OK -> {
+                    if (body.isEmpty() || body == "[]") {
+                        println("Empty search results for email: $email")
+                        emptyList()
+                    } else {
+                        try {
+                            val user = Json.decodeFromString<User>(body)
+                            listOf(user.email)
+                        } catch (e: Exception) {
+                            try {
+                                Json.decodeFromString<List<String>>(body)
+                            } catch (e2: Exception) {
+                                println("Failed to parse search response: $body, $e2")
+                                emptyList()
+                            }
+                        }
+                    }
+                }
+                HttpStatusCode.NotFound -> {
+                    println("No users found for email: $email")
+                    emptyList()
+                }
+                else -> {
+                    println("Unexpected response for search: ${response.status}, body=$body")
+                    emptyList()
+                }
+            }
+        } catch (e: Exception) {
+            println("Error during searchUsersByEmail: $email, $e")
+            return emptyList()
+        }
+    }
+
     private fun ByteArray.encodeToBase64(): String = Base64.getEncoder().encodeToString(this)
     private fun String.decodeFromBase64(): ByteArray = Base64.getDecoder().decode(this)
-
 }

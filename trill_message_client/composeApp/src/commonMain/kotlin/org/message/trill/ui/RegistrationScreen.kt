@@ -6,15 +6,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 
 @Composable
 fun RegistrationScreen(
-    onRegister: (String, String) -> Unit,
-    onLogin: (String, String) -> Unit
+    onRegister: suspend (String, String) -> Unit,
+    onLogin: suspend (String, String) -> Unit
 ) {
     var email by remember { mutableStateOf("") }
     var nickname by remember { mutableStateOf("") }
     var isLoginMode by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -26,6 +29,14 @@ fun RegistrationScreen(
             style = MaterialTheme.typography.h4
         )
         Spacer(modifier = Modifier.height(16.dp))
+
+        errorMessage?.let { error ->
+            Text(
+                text = error,
+                color = MaterialTheme.colors.error,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
 
         OutlinedTextField(
             value = email,
@@ -61,10 +72,17 @@ fun RegistrationScreen(
 
         Button(
             onClick = {
-                if (isLoginMode) {
-                    onLogin(email, nickname)
-                } else {
-                    onRegister(email, nickname)
+                scope.launch {
+                    try {
+                        if (isLoginMode) {
+                            onLogin(email, nickname)
+                        } else {
+                            onRegister(email, nickname)
+                        }
+                        errorMessage = null
+                    } catch (e: Exception) {
+                        errorMessage = "Operation failed: ${e.message}"
+                    }
                 }
             },
             enabled = email.isNotBlank() && nickname.isNotBlank()

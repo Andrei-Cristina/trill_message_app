@@ -6,8 +6,10 @@ import org.message.trill.encryption.utils.EncryptionUtils
 
 
 
-class DoubleRatchet(private val state: RatchetState) {
-    fun encrypt(plaintext: ByteArray, ad: ByteArray): MessageContent {
+class DoubleRatchet(
+    private val state: RatchetState
+) {
+    fun encrypt(plaintext: ByteArray, ad: ByteArray): Pair<Header, ByteArray> {
         val (ck, mk) = kdfCk(state.cks!!)
         state.cks = ck
 
@@ -16,7 +18,7 @@ class DoubleRatchet(private val state: RatchetState) {
 
         val ciphertext = EncryptionUtils.encrypt(mk, plaintext, ad + header.toByteArray())
 
-        return MessageContent(header, ciphertext)
+        return header to ciphertext
     }
 
     fun decrypt(message: MessageContent, ad: ByteArray): ByteArray {

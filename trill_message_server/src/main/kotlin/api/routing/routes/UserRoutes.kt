@@ -1,5 +1,6 @@
 package api.routing.routes
 
+import data.models.EmailSearchRequest
 import data.models.LoginRequest
 import data.models.User
 import data.models.UserRegisterRequest
@@ -10,6 +11,7 @@ import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.util.date.*
 import org.koin.ktor.ext.inject
 
 fun Route.userRoutes() {
@@ -80,30 +82,32 @@ fun Route.userRoutes() {
             )
         }
 
-        get("/search") {
-            val nickname = try {
-                call.receive<String>()
+        post("/search") {
+            val request = try {
+                call.receive<EmailSearchRequest>()
             } catch (e: Exception) {
-                call.application.environment.log.warn("Invalid request body for GET /users/search: {}", e.message)
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid or missing nickname in request body"))
-                return@get
-            }
-            call.application.environment.log.info("Searching users by nickname: {}", nickname)
-
-            if (nickname.isBlank()) {
-                call.application.environment.log.warn("Empty nickname provided for GET /users/search")
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Nickname cannot be empty"))
-                return@get
+                call.application.environment.log.warn("Invalid request body for POST /search: {}", e.message)
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid or missing email in request body"))
+                return@post
             }
 
-            userRepository.getByNickName(nickname).fold(
-                onSuccess = { users ->
-                    call.respond(HttpStatusCode.OK, users)
-                    call.application.environment.log.info("Found {} users with nickname: {}", users.size, nickname)
+            val email = request.email.trim()
+            call.application.environment.log.info("Searching users by email: {}", email)
+
+            if (email.isBlank()) {
+                call.application.environment.log.warn("Empty email provided for POST /search")
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Email cannot be empty"))
+                return@post
+            }
+
+            userRepository.getByEmail(email).fold(
+                onSuccess = { user ->
+                    call.application.environment.log.info("Found user for email: {}", email)
+                    call.respond(HttpStatusCode.OK, user)
                 },
                 onFailure = { e ->
-                    call.application.environment.log.warn("No users found for nickname: {}. Error: {}", nickname, e.message)
-                    call.respond(HttpStatusCode.NotFound, mapOf("error" to "No users found"))
+                    call.application.environment.log.error("Failed to search users: {}", e.message, e)
+                    call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Error searching users: ${e.message}"))
                 }
             )
         }
@@ -144,7 +148,7 @@ fun Route.userRoutes() {
                     email = userRequest.email,
                     nickname = userRequest.nickname,
                     isOnline = false,
-                    lastOnline = toString()
+                    lastOnline = GMTDate().toString()
                 )
             ).fold(
                 onSuccess = {

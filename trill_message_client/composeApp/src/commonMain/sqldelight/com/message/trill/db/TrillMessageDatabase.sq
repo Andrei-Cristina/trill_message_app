@@ -1,21 +1,31 @@
+-- Store identity keys per user
 CREATE TABLE IF NOT EXISTS identity_key (
-    public_key BLOB NOT NULL,
-    private_key BLOB NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS signed_prekey (
-    id INTEGER PRIMARY KEY,
+    user_email TEXT NOT NULL,
     public_key BLOB NOT NULL,
     private_key BLOB NOT NULL,
-    signature BLOB NOT NULL
+    PRIMARY KEY (user_email)
 );
 
-CREATE TABLE IF NOT EXISTS one_time_prekeys (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+-- Store signed prekeys per user
+CREATE TABLE IF NOT EXISTS signed_prekey (
+    user_email TEXT NOT NULL,
+    id INTEGER NOT NULL,
     public_key BLOB NOT NULL,
-    private_key BLOB NOT NULL
+    private_key BLOB NOT NULL,
+    signature BLOB NOT NULL,
+    PRIMARY KEY (user_email, id)
 );
 
+-- Store one-time prekeys per user
+CREATE TABLE IF NOT EXISTS one_time_prekeys (
+    user_email TEXT NOT NULL,
+    id INTEGER NOT NULL,
+    public_key BLOB NOT NULL,
+    private_key BLOB NOT NULL,
+    PRIMARY KEY (user_email, id)
+);
+
+-- Store user records
 CREATE TABLE IF NOT EXISTS user_records (
     user_id TEXT PRIMARY KEY,
     nickname TEXT,
@@ -23,6 +33,7 @@ CREATE TABLE IF NOT EXISTS user_records (
     stale_since INTEGER
 );
 
+-- Store device records
 CREATE TABLE IF NOT EXISTS device_records (
     user_id TEXT NOT NULL,
     device_id TEXT NOT NULL,
@@ -34,6 +45,7 @@ CREATE TABLE IF NOT EXISTS device_records (
     PRIMARY KEY (user_id, device_id)
 );
 
+-- Store session data
 CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -44,70 +56,76 @@ CREATE TABLE IF NOT EXISTS sessions (
     FOREIGN KEY (user_id, device_id) REFERENCES device_records(user_id, device_id)
 );
 
+-- Store client info for multiple users
 CREATE TABLE IF NOT EXISTS client_info (
     user_email TEXT NOT NULL,
     user_nickname TEXT,
     device_id TEXT NOT NULL,
-    PRIMARY KEY (user_email, device_id)
+    PRIMARY KEY (user_email)
 );
 
+-- Queries
 selectClientInfo:
-SELECT * FROM client_info;
+SELECT user_email, user_nickname, device_id FROM client_info WHERE user_email = ?;
 
 insertOrReplaceClientInfo:
 INSERT OR REPLACE INTO client_info (user_email, user_nickname, device_id) VALUES (?, ?, ?);
 
+listClientInfos:
+SELECT user_email, user_nickname, device_id FROM client_info;
+
 selectIdentityKey:
-SELECT * FROM identity_key;
+SELECT public_key, private_key FROM identity_key WHERE user_email = ?;
 
 insertIdentityKey:
-INSERT OR REPLACE INTO identity_key (public_key, private_key) VALUES (?, ?);
+INSERT OR REPLACE INTO identity_key (user_email, public_key, private_key) VALUES (?, ?, ?);
 
 deleteIdentityKey:
-DELETE FROM identity_key;
+DELETE FROM identity_key WHERE user_email = ?;
 
 selectSignedPreKey:
-SELECT * FROM signed_prekey WHERE id = ?;
+SELECT id, public_key, private_key, signature FROM signed_prekey WHERE user_email = ? AND id = ?;
 
 selectLatestSignedPreKey:
-SELECT * FROM signed_prekey ORDER BY id DESC LIMIT 1;
+SELECT id, public_key, private_key, signature FROM signed_prekey WHERE user_email = ? ORDER BY id DESC LIMIT 1;
 
 insertSignedPreKey:
-INSERT OR REPLACE INTO signed_prekey (id, public_key, private_key, signature) VALUES (?, ?, ?, ?);
+INSERT OR REPLACE INTO signed_prekey (user_email, id, public_key, private_key, signature) VALUES (?, ?, ?, ?, ?);
 
 deleteSignedPreKey:
-DELETE FROM signed_prekey WHERE id = ?;
+DELETE FROM signed_prekey WHERE user_email = ? AND id = ?;
 
 deleteAllSignedPreKeys:
-DELETE FROM signed_prekey;
+DELETE FROM signed_prekey WHERE user_email = ?;
 
 selectOneTimePreKey:
-SELECT * FROM one_time_prekeys WHERE id = ?;
+SELECT id, public_key, private_key FROM one_time_prekeys WHERE user_email = ? AND id = ?;
 
 selectFirstOneTimePreKey:
-SELECT * FROM one_time_prekeys ORDER BY id ASC LIMIT 1;
+SELECT id, public_key, private_key FROM one_time_prekeys WHERE user_email = ? ORDER BY id ASC LIMIT 1;
 
 insertOneTimePreKey:
-INSERT INTO one_time_prekeys (public_key, private_key) VALUES (?, ?);
+INSERT INTO one_time_prekeys (user_email, id, public_key, private_key) VALUES (?, ?, ?, ?);
 
 deleteOneTimePreKey:
-DELETE FROM one_time_prekeys WHERE id = ?;
+DELETE FROM one_time_prekeys WHERE user_email = ? AND id = ?;
 
 selectAllUserRecords:
-SELECT * FROM user_records;
+SELECT user_id, nickname, is_stale, stale_since FROM user_records;
 
 insertOrReplaceUserRecord:
 INSERT OR REPLACE INTO user_records (user_id, nickname, is_stale, stale_since) VALUES (?, ?, ?, ?);
 
 selectDevicesByUser:
-SELECT * FROM device_records WHERE user_id = ?;
+SELECT user_id, device_id, public_key, is_stale, stale_since, active_session_id FROM device_records WHERE user_id = ?;
 
 insertOrReplaceDeviceRecord:
 INSERT OR REPLACE INTO device_records (user_id, device_id, public_key, is_stale, stale_since, active_session_id)
 VALUES (?, ?, ?, ?, ?, ?);
 
 selectSessionsByDevice:
-SELECT * FROM sessions WHERE user_id = ? AND device_id = ?;
+SELECT session_id, user_id, device_id, ratchet_state, is_initiating, timestamp
+FROM sessions WHERE user_id = ? AND device_id = ?;
 
 insertOrReplaceSession:
 INSERT OR REPLACE INTO sessions (session_id, user_id, device_id, ratchet_state, is_initiating, timestamp)

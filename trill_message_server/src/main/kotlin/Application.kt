@@ -2,6 +2,7 @@ import api.routing.configureRouting
 import api.websocket.configureSockets
 import data.connectToMongoDB
 import data.repositories.DeviceRepository
+import data.repositories.MessageRepository
 import data.repositories.UserRepository
 import utils.AuthUtils
 import io.ktor.server.application.*
@@ -21,7 +22,7 @@ fun Application.module() {
     install(Koin) {
         slf4jLogger()
         modules(
-            module{
+            module {
                 single {
                     connectToMongoDB()
                 }
@@ -33,6 +34,9 @@ fun Application.module() {
                 }
                 single<AuthUtils> {
                     AuthUtils()
+                }
+                single<MessageRepository> {
+                    MessageRepository()
                 }
             }
         )

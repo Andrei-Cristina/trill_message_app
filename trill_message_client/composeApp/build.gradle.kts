@@ -26,17 +26,19 @@ kotlin {
             jvmTarget.set(JvmTarget.JVM_11)
         }
     }
-    
+
     jvm("desktop")
-    
+
     sourceSets {
         val desktopMain by getting
-        
+
         androidMain.dependencies {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
             implementation(libs.lazysodium.java)
             implementation(libs.android.driver)
+
+            implementation(libs.cafe.adriel.voyager.voyager.navigator)
         }
         commonMain.dependencies {
             implementation(compose.runtime)
@@ -45,6 +47,11 @@ kotlin {
             implementation(compose.ui)
             implementation(compose.components.resources)
             implementation(compose.components.uiToolingPreview)
+
+
+            implementation(libs.cafe.adriel.voyager.voyager.navigator)
+            implementation(libs.voyager.transitions)
+
             implementation(libs.androidx.lifecycle.viewmodel)
             implementation(libs.androidx.lifecycle.runtime.compose)
             implementation(libs.kotlinx.datetime)
@@ -55,10 +62,8 @@ kotlin {
             implementation(libs.ktor.client.core)
             implementation(libs.ktor.serialization.kotlinx.json)
             implementation(libs.ktor.client.content.negotiation)
-            //runtimeOnly(libs.ktor.client.core)
 
             implementation(libs.runtime)
-
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)
@@ -66,6 +71,8 @@ kotlin {
             implementation(libs.lazysodium.java)
             implementation(libs.ktor.client.cio.jvm)
             implementation(libs.sqlite.driver)
+
+            implementation(libs.cafe.adriel.voyager.voyager.navigator)
         }
     }
 }
@@ -98,6 +105,7 @@ android {
 }
 
 dependencies {
+    implementation(libs.androidx.foundation.android)
     debugImplementation(compose.uiTooling)
 }
 

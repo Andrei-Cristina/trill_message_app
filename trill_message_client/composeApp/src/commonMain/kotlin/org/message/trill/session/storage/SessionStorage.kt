@@ -7,28 +7,29 @@ import org.message.trill.session.sesame.DeviceRecord
 import org.message.trill.session.sesame.UserRecord
 
 expect class SessionStorage {
-    fun getIdentityKey(): IdentityKey?
-    fun storeIdentityKey(identityKey: IdentityKey)
+    fun getIdentityKey(userEmail: String): IdentityKey?
+    fun storeIdentityKey(userEmail: String, identityKey: IdentityKey)
 
-    fun getPreKey(id: Int): PreKey?
-    fun storePreKey(preKey: PreKey)
-    fun removePreKey(id: Int)
+    fun getPreKey(userEmail: String, id: Int): PreKey?
+    fun storePreKey(userEmail: String, preKey: PreKey)
+    fun removePreKey(userEmail: String, id: Int)
 
-    fun getSignedPreKey(): SignedPreKey?
-    fun storeSignedPreKey(signedPreKey: SignedPreKey)
-    fun removeSignedPreKey()
+    fun getSignedPreKey(userEmail: String): SignedPreKey?
+    fun storeSignedPreKey(userEmail: String, signedPreKey: SignedPreKey)
+    fun removeSignedPreKey(userEmail: String)
 
-    fun getOneTimePreKey(): PreKey
-    fun storeOneTimePreKeys(preKeys: List<PreKey>)
-    fun removeOneTimePreKey(id: Int = 0)
+    fun getOneTimePreKey(userEmail: String): PreKey
+    fun storeOneTimePreKeys(userEmail: String, preKeys: List<PreKey>)
+    fun removeOneTimePreKey(userEmail: String, id: Int = 0)
 
-    fun loadUserRecords(): Map<out String, UserRecord>
+    fun loadUserRecords(): Map<String, UserRecord>
     fun saveUserRecords(userRecords: MutableMap<String, UserRecord>)
 
-    fun saveDeviceRecord(user:String, nickname:String, record:DeviceRecord)
+    fun saveDeviceRecord(userEmail: String, nickname: String, record: DeviceRecord)
 
-    fun loadUserEmail(): String
-    fun loadDeviceId(): String
+    fun loadUserEmail(userEmail: String): String
+    fun loadDeviceId(userEmail: String): String
     fun setClientInfo(userEmail: String, userNickname:String, deviceId: String)
-    fun getDevicePublicKey(deviceId: String): ByteArray?
+    fun getDevicePublicKey(userEmail: String): ByteArray?
+    fun listClientInfos(): List<Triple<String, String?, String>>
 }

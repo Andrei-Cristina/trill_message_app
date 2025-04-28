@@ -5,6 +5,7 @@ import org.message.trill.encryption.double_ratchet.DoubleRatchet
 import org.message.trill.encryption.double_ratchet.RatchetState
 import org.message.trill.encryption.keys.KeyManager
 import org.message.trill.encryption.x3dh.X3DH
+import org.message.trill.messaging.models.Header
 import org.message.trill.messaging.models.Message
 import org.message.trill.messaging.models.MessageContent
 import org.message.trill.networking.NetworkManager
@@ -13,9 +14,9 @@ import org.message.trill.session.storage.SessionStorage
 import java.util.UUID
 
 class SesameManager(
-    private val keyManager: KeyManager,
-    private val networkManager: NetworkManager,
-    private val sessionStorage: SessionStorage
+private val keyManager: KeyManager,
+private val networkManager: NetworkManager,
+private val sessionStorage: SessionStorage
 ) {
     private var userRecords: MutableMap<String, UserRecord> = mutableMapOf()
     private val MAX_INACTIVE_SESSIONS = 10
@@ -25,48 +26,36 @@ class SesameManager(
         userRecords = sessionStorage.loadUserRecords().toMutableMap()
     }
 
-    /**
-     * Sends an encrypted message to all active devices of the recipient.
-     */
-    suspend fun sendMessage(recipientUserId: String, plaintext: ByteArray) {
+    suspend fun prepareMessageContent(senderId: String, recipientUserId: String, recipientDeviceId: String, plaintext: ByteArray): MessageContent {
         cleanupStaleRecords()
 
-        val recipientUserRecord = userRecords[recipientUserId]
+        val recipientUserRecord = userRecords[recipientUserId] ?: createUserRecord(recipientUserId)
 
-        if (recipientUserRecord == null || recipientUserRecord.isStale) {
+        if (recipientUserRecord.isStale) {
             updateUserRecord(recipientUserId, networkManager.fetchUserDevices(recipientUserId))
         }
 
-        val messages = mutableListOf<Message>()
-        val updatedUserRecord = userRecords[recipientUserId]!!
+        val deviceRecord = recipientUserRecord.devices[recipientDeviceId] ?: createDeviceRecord(recipientDeviceId, recipientUserId)
 
-        for (device in updatedUserRecord.devices.values) {
-            if (device.isStale) continue
+        val (session, isInitial) = deviceRecord.activeSession?.let { it to false } ?: (createNewSession(
+            senderId,
+            recipientUserId,
+            recipientDeviceId
+        ) to true)
 
-            val session = device.activeSession ?: createNewSession(recipientUserId, device.deviceId)
-            val doubleRatchet = DoubleRatchet(session.ratchetState)
-            val messageContent = doubleRatchet.encrypt(plaintext, session.ratchetState.ad)
-
-            val message = Message(
-                senderId = sessionStorage.loadUserEmail(),
-                senderDeviceId = sessionStorage.loadDeviceId(),
-                recipientId = recipientUserId,
-                recipientDeviceId = device.deviceId,
-                content = messageContent,
-                timestamp = Clock.System.now().toString()
-            )
-
-            messages.add(message)
+        val doubleRatchet = DoubleRatchet(session.ratchetState)
+        val (header, ciphertext) = if (isInitial) {
+            val identityKey = keyManager.getIdentityKey(senderId).publicKey
+            val (initialHeader, initialCiphertext) = doubleRatchet.encrypt(plaintext, session.ratchetState.ad)
+            val modifiedCiphertext = identityKey + initialCiphertext
+            initialHeader.copy(n = -1) to modifiedCiphertext
+        } else {
+            doubleRatchet.encrypt(plaintext, session.ratchetState.ad)
         }
 
-        val response = networkManager.sendMessages(messages)
-
-        handleNetworkResponse(response, recipientUserId, plaintext)
+        return MessageContent(header, ciphertext)
     }
 
-    /**
-     * Receives and decrypts a message from a sender's device.
-     */
     fun receiveMessage(message: Message): String {
         val userRecord = userRecords[message.senderId] ?: createUserRecord(message.senderId)
 
@@ -75,44 +64,55 @@ class SesameManager(
             userRecord.staleTransitionTimestamp = null
         }
 
-        val deviceRecord = userRecord.devices[message.senderId] ?: createDeviceRecord(message.senderDeviceId, message.senderId)
+        val deviceRecord = userRecord.devices[message.senderDeviceId] ?: createDeviceRecord(message.senderDeviceId, message.senderId)
 
         if (deviceRecord.isStale) {
             deviceRecord.isStale = false
             deviceRecord.staleTransitionTimestamp = null
         }
 
-        val session = findSessionForMessage(deviceRecord, message.content)
+        val content = message.content
+        return if (content.header.n == -1) {
+            val identityKeySize = 32
+            if (content.ciphertext.size < identityKeySize) {
+                throw IllegalStateException("Invalid initial message ciphertext")
+            }
+            val senderIdentityKey = content.ciphertext.copyOfRange(0, identityKeySize)
+            val actualCiphertext = content.ciphertext.copyOfRange(identityKeySize, content.ciphertext.size)
 
-        if (session == null) {
             val x3dh = X3DH(keyManager)
-            val x3dhResult = x3dh.receive(message.content.header.dh, message.content.header.dh)
-            val ratchetState = RatchetState.initAsReceiver(x3dhResult, keyManager.getSignedPreKey().preKey)
-            val newSession = Session(UUID.randomUUID().toString(), ratchetState, isInitiating = false)
+            val x3dhResult = x3dh.receive(message.senderId, senderIdentityKey, content.header.dh)
+            val ratchetState = RatchetState.initAsReceiver(x3dhResult, keyManager.getSignedPreKey(message.senderId).preKey)
+            val session = Session(UUID.randomUUID().toString(), ratchetState, isInitiating = false)
+            val doubleRatchet = DoubleRatchet(ratchetState)
+            val modifiedContent = MessageContent(content.header.copy(n = 0), actualCiphertext)
+            val plaintext = doubleRatchet.decrypt(modifiedContent, session.ratchetState.ad)
 
-            deviceRecord.activeSession = newSession
-            deviceRecord.inactiveSessions.add(0, newSession)
+            deviceRecord.activeSession = session
+            deviceRecord.inactiveSessions.add(0, session)
 
             if (deviceRecord.inactiveSessions.size > MAX_INACTIVE_SESSIONS) {
                 deviceRecord.inactiveSessions.removeLast()
             }
 
+            sessionStorage.saveUserRecords(userRecords)
+            plaintext.decodeToString()
         } else {
+            val session = findSessionForMessage(deviceRecord, content)
+                ?: throw Exception("No session found for message")
+
             activateSession(deviceRecord, session)
+
+            val doubleRatchet = DoubleRatchet(session.ratchetState)
+            val plaintext = doubleRatchet.decrypt(content, session.ratchetState.ad)
+
+            sessionStorage.saveUserRecords(userRecords)
+            plaintext.decodeToString()
         }
-
-        val doubleRatchet = DoubleRatchet(session!!.ratchetState)
-        val plaintext = doubleRatchet.decrypt(message.content, session.ratchetState.ad)
-
-        return plaintext.toString()
     }
 
-    /**
-     * Cleans up stale user and device records that have been stale for longer than MAX_LATENCY.
-     */
     private fun cleanupStaleRecords() {
         val currentTime = System.currentTimeMillis()
-
         userRecords.values.removeIf { user ->
             if (user.isStale && user.staleTransitionTimestamp != null && currentTime - user.staleTransitionTimestamp!! > MAX_LATENCY) {
                 true
@@ -123,17 +123,14 @@ class SesameManager(
                 false
             }
         }
-
         sessionStorage.saveUserRecords(userRecords)
     }
 
-    /**
-     * Creates a new session with a recipient device using X3DH.
-     */
-    private suspend fun createNewSession(recipientUserId: String, deviceId: String): Session {
+    private suspend fun createNewSession(userId: String, recipientUserId: String, deviceId: String): Session {
         val prekeyBundle = networkManager.fetchPrekeyBundle(recipientUserId, deviceId)
         val x3dh = X3DH(keyManager)
         val x3dhResult = x3dh.initiate(
+            userId,
             prekeyBundle.identityKey,
             prekeyBundle.signedPreKey,
             prekeyBundle.oneTimePreKey,
@@ -145,79 +142,53 @@ class SesameManager(
 
         deviceRecord.activeSession = session
         deviceRecord.inactiveSessions.add(0, session)
-
         if (deviceRecord.inactiveSessions.size > MAX_INACTIVE_SESSIONS) {
             deviceRecord.inactiveSessions.removeLast()
         }
-
         sessionStorage.saveUserRecords(userRecords)
-
         return session
     }
 
-    /**
-     * Finds a session capable of decrypting the incoming message.
-     */
-    private fun findSessionForMessage(deviceRecord: DeviceRecord, message: MessageContent): Session? {
-        if (deviceRecord.activeSession?.ratchetState?.dhr?.contentEquals(message.header.dh) == true) {
+    private fun findSessionForMessage(deviceRecord: DeviceRecord, content: MessageContent): Session? {
+        if (deviceRecord.activeSession?.ratchetState?.dhr?.contentEquals(content.header.dh) == true) {
             return deviceRecord.activeSession
         }
-
-        return deviceRecord.inactiveSessions.find { it.ratchetState.dhr?.contentEquals(message.header.dh) == true }
+        return deviceRecord.inactiveSessions.find { it.ratchetState.dhr?.contentEquals(content.header.dh) == true }
     }
 
-    /**
-     * Activates a session, moving it to the active slot if necessary.
-     */
     private fun activateSession(deviceRecord: DeviceRecord, session: Session) {
         if (deviceRecord.activeSession != session) {
             deviceRecord.inactiveSessions.remove(session)
             deviceRecord.inactiveSessions.add(0, deviceRecord.activeSession!!)
             deviceRecord.activeSession = session
         }
-
         sessionStorage.saveUserRecords(userRecords)
     }
 
-    /**
-     * Updates the user record with the latest device information.
-     */
     private fun updateUserRecord(userId: String, devices: Map<String, ByteArray>) {
         val userRecord = userRecords.getOrPut(userId) { UserRecord(userId) }
-
         devices.forEach { (deviceId, publicKey) ->
             val deviceRecord = userRecord.devices.getOrPut(deviceId) { DeviceRecord(deviceId, publicKey, null) }
-
             if (!publicKey.contentEquals(deviceRecord.publicKey)) {
                 deviceRecord.publicKey = publicKey
                 deviceRecord.activeSession = null
                 deviceRecord.inactiveSessions.clear()
             }
         }
-
         val currentDeviceIds = devices.keys
-
         userRecord.devices.keys.filter { it !in currentDeviceIds }.forEach { deviceId ->
             val deviceRecord = userRecord.devices[deviceId]!!
-
             deviceRecord.isStale = true
             deviceRecord.staleTransitionTimestamp = System.currentTimeMillis()
         }
-
         sessionStorage.saveUserRecords(userRecords)
     }
 
-    /**
-     * Handles network responses, including retries on device mismatches.
-     */
-    private suspend fun handleNetworkResponse(response: NetworkResponse, recipientUserId: String, plaintext: ByteArray) {
+    private suspend fun handleNetworkResponse(senderId:String, response: NetworkResponse, recipientUserId: String, plaintext: ByteArray) {
         when (response) {
-            is NetworkResponse.Success -> {
-
-            }
+            is NetworkResponse.Success -> {}
             is NetworkResponse.UserNotFound -> {
                 val userRecord = userRecords[recipientUserId]
-
                 if (userRecord != null) {
                     userRecord.isStale = true
                     userRecord.staleTransitionTimestamp = System.currentTimeMillis()
@@ -226,38 +197,61 @@ class SesameManager(
             }
             is NetworkResponse.DeviceMismatch -> {
                 val userRecord = userRecords[recipientUserId]!!
-
                 response.oldDevices.forEach { deviceId ->
                     val deviceRecord = userRecord.devices[deviceId]
-
                     if (deviceRecord != null) {
                         deviceRecord.isStale = true
                         deviceRecord.staleTransitionTimestamp = System.currentTimeMillis()
                     }
                 }
-
                 updateUserRecord(recipientUserId, response.newDevices)
-
-                sendMessage(recipientUserId, plaintext)
+                sendMessage(senderId, recipientUserId, plaintext)
             }
         }
     }
 
     private fun createUserRecord(userId: String): UserRecord {
         val userRecord = UserRecord(userId)
-
         userRecords[userId] = userRecord
         sessionStorage.saveUserRecords(userRecords)
-
         return userRecord
     }
 
     private fun createDeviceRecord(deviceId: String, userId: String): DeviceRecord {
         val deviceRecord = DeviceRecord(deviceId, byteArrayOf(), null)
-
         userRecords[userId]!!.devices[deviceId] = deviceRecord
         sessionStorage.saveUserRecords(userRecords)
-
         return deviceRecord
+    }
+
+    suspend fun sendMessage(senderId: String, recipientUserId: String, plaintext: ByteArray) {
+        cleanupStaleRecords()
+
+        val recipientUserRecord = userRecords[recipientUserId] ?: createUserRecord(recipientUserId)
+
+        if (recipientUserRecord.isStale) {
+            updateUserRecord(recipientUserId, networkManager.fetchUserDevices(recipientUserId))
+        }
+
+        val messages = mutableListOf<Message>()
+        val updatedUserRecord = userRecords[recipientUserId]!!
+
+        for (device in updatedUserRecord.devices.values) {
+            if (device.isStale) continue
+
+            val content = prepareMessageContent(senderId, recipientUserId, device.deviceId, plaintext)
+            val message = Message(
+                senderId = senderId,
+                senderDeviceId = sessionStorage.loadDeviceId(senderId),
+                recipientId = recipientUserId,
+                recipientDeviceId = device.deviceId,
+                content = content,
+                timestamp = Clock.System.now().toString()
+            )
+            messages.add(message)
+        }
+
+        val response = networkManager.sendMessages(messages)
+        handleNetworkResponse(senderId, response, recipientUserId, plaintext)
     }
 }

@@ -6,12 +6,13 @@ import org.message.trill.encryption.utils.EncryptionUtils
 
 class X3DH(private val keyManager: KeyManager) {
     fun initiate(
+        userId: String,
         recipientIdentityKey: ByteArray,
         recipientSignedPreKey: ByteArray,
         recipientOneTimePreKey: ByteArray?,
         recipientSignature: ByteArray
     ): X3DHResult {
-        val identityKey = keyManager.getIdentityKey()
+        val identityKey = keyManager.getIdentityKey(userId)
         val ephemeralKey = EncryptionUtils.generateKeyPair()
 
         if (!verifySignature(recipientIdentityKey, recipientSignedPreKey, recipientSignature)) {
@@ -33,12 +34,13 @@ class X3DH(private val keyManager: KeyManager) {
     }
 
     fun receive(
+        userId: String,
         senderIdentityKey: ByteArray,
         senderEphemeralKey: ByteArray
     ): X3DHResult {
-        val identityKey = keyManager.getIdentityKey()
-        val signedPreKey = keyManager.getSignedPreKey()
-        val oneTimePreKey = keyManager.getOnetimePreKey()
+        val identityKey = keyManager.getIdentityKey(userId)
+        val signedPreKey = keyManager.getSignedPreKey(userId)
+        val oneTimePreKey = keyManager.getOneTimePreKey(userId)
 
         val dh1 = EncryptionUtils.dh(identityKey.privateKey, senderIdentityKey)
         val dh2 = EncryptionUtils.dh(senderEphemeralKey, identityKey.privateKey)
@@ -51,7 +53,7 @@ class X3DH(private val keyManager: KeyManager) {
 
         val ad = senderIdentityKey + identityKey.publicKey
 
-        keyManager.deleteOnetimePreKey(oneTimePreKey.id)
+        keyManager.deleteOneTimePreKey(userId, oneTimePreKey.id)
 
         return X3DHResult(sk, ad, senderEphemeralKey)
     }
