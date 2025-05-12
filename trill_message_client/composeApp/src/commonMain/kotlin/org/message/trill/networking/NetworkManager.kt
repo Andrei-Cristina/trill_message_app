@@ -110,6 +110,8 @@ class NetworkManager {
             setBody(userId)
         }
 
+        println("Response: ${response.status} for prekey bundle , body: ${response.bodyAsText()}")
+
         return Json.decodeFromString<PrekeyBundle>(response.bodyAsText())
     }
 
@@ -119,13 +121,15 @@ class NetworkManager {
             setBody(userId)
         }
         val bundles = Json.decodeFromString<List<PrekeyBundle>>(response.bodyAsText())
-
-        return bundles.associate { it.identityKey.toString() to it.identityKey }
+        return bundles.associate {
+            it.identityKey to Base64.getDecoder().decode(it.identityKey)
+        }
     }
 
     suspend fun sendMessages(
         messages: List<Message>
     ): NetworkResponse {
+        println("Sending messages")
         val response = client.post("$baseUrl/messages") {
             contentType(ContentType.Application.Json)
             setBody(mapOf(

@@ -4,10 +4,6 @@ import com.goterl.lazysodium.LazySodiumJava
 import com.goterl.lazysodium.SodiumJava
 import com.goterl.lazysodium.exceptions.SodiumException
 import com.goterl.lazysodium.utils.Key
-import javax.crypto.Cipher
-import javax.crypto.Mac
-import javax.crypto.spec.IvParameterSpec
-import javax.crypto.spec.SecretKeySpec
 import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -35,7 +31,8 @@ actual object EncryptionUtils {
         BigInteger.ONE,
         BigInteger("67875f0fd78b766566ea4e8e64abe9a66e30e2b0f1b0b456891a80a02162b5e", 16)
     )
-    private val ED25519_COFACTOR = byteArrayOf(8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    private val ED25519_COFACTOR =
+        byteArrayOf(8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 
     private data class Ed25519Point(val x: BigInteger, val y: BigInteger, val z: BigInteger, val t: BigInteger)
 
@@ -188,8 +185,20 @@ actual object EncryptionUtils {
         val sScalar = decodeScalar(s)
         if (!isScalarValid(sScalar)) return false
 
-        val rPoint = try { decodePoint(r) } catch (e: Exception) { return false }
-        val aPoint = try { decodePoint(publicKey) } catch (e: Exception) { return false }
+        val rPoint = try {
+            decodePoint(r)
+        } catch (e: Exception) {
+            println("Failed to receive messages for ${e.message}")
+
+            return false
+        }
+        val aPoint = try {
+            decodePoint(publicKey)
+        } catch (e: Exception) {
+            println("Failed to receive messages for ${e.message}")
+
+            return false
+        }
 
         val h = sha512(r + publicKey + data)
         val hReduced = scalarReduce(h)
@@ -370,7 +379,11 @@ actual object EncryptionUtils {
         return q
     }
 
-    private fun ed25519PointScalarMultiplication(point: Ed25519Point, scalar: ByteArray, cofactor: ByteArray): Ed25519Point {
+    private fun ed25519PointScalarMultiplication(
+        point: Ed25519Point,
+        scalar: ByteArray,
+        cofactor: ByteArray
+    ): Ed25519Point {
         var e = BigInteger.ZERO
         for (i in 0 until 32) {
             e = e.add(BigInteger.valueOf((scalar[i].toInt() and 0xff).toLong()).shiftLeft(8 * i))

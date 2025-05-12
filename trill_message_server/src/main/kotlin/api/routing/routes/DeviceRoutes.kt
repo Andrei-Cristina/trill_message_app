@@ -13,6 +13,7 @@ import io.ktor.server.routing.*
 import io.ktor.util.*
 import io.ktor.util.date.*
 import org.koin.ktor.ext.inject
+import java.util.*
 
 fun Route.deviceRoutes() {
     val deviceRepository: DeviceRepository by inject()
@@ -38,7 +39,7 @@ fun Route.deviceRoutes() {
                 }
             )
 
-            deviceRepository.getAllDevices(recipientId).fold(
+            deviceRepository.getAllDevices(recipientEmail).fold(
                 onSuccess = getAllDevicesFold@{ devices ->
                     if (devices.isEmpty()) {
                         call.application.environment.log.warn("No devices found for user ID: {}", recipientId)
@@ -53,14 +54,14 @@ fun Route.deviceRoutes() {
                         if (device.onetimePreKeys.isNotEmpty()) {
                             val oneTimePreKey = device.onetimePreKeys.first()
 
-                            deviceRepository.deleteOneTimePreKey(device.identityKey.toString(), oneTimePreKey.toString()).fold(
+                            deviceRepository.deleteOneTimePreKey(device.identityKey, oneTimePreKey).fold(
                                 onSuccess = {
                                     bundleList.add(
                                         DeviceKeyBundle(
-                                            device.identityKey.encodeBase64(),
-                                            device.signedPreKey.encodeBase64(),
-                                            device.preKeySignature.encodeBase64(),
-                                            oneTimePreKey.encodeBase64()
+                                            device.identityKey,
+                                            device.signedPreKey,
+                                            device.preKeySignature,
+                                            oneTimePreKey
                                         )
                                     )
                                 },
@@ -81,8 +82,9 @@ fun Route.deviceRoutes() {
                         return@getAllDevicesFold
                     }
 
-                    call.respond(HttpStatusCode.OK, bundleList)
                     call.application.environment.log.info("Successfully returned {} device key bundles for email: {}", bundleList.size, recipientEmail)
+                    call.application.environment.log.info("Returned device key bundles: {}", bundleList)
+                    call.respond(HttpStatusCode.OK, bundleList)
                 },
                 onFailure = { e ->
                     call.application.environment.log.error("Failed to fetch devices for user ID: {}. Error: {}", recipientId, e.message, e)
@@ -110,7 +112,7 @@ fun Route.deviceRoutes() {
                 }
             )
 
-            deviceRepository.getOnlineDevices(recipientId).fold(
+            deviceRepository.getOnlineDevices(recipientEmail).fold(
                 onSuccess = { devices ->
                     if (devices.isEmpty()) {
                         call.application.environment.log.warn("No online devices found for user ID: {}", recipientId)
@@ -118,13 +120,13 @@ fun Route.deviceRoutes() {
                         return@fold
                     }
 
-                    call.application.environment.log.debug("Found {} online devices for user ID: {}", devices.size, recipientId)
+                    call.application.environment.log.info("Found {} online devices for user ID: {}", devices.size, recipientId)
                     val device = devices.firstOrNull { it.onetimePreKeys.isNotEmpty() && it.isPrimary }
                         ?: devices.firstOrNull { it.onetimePreKeys.isNotEmpty() }
 
                     device?.let { d ->
                         val oneTimePreKey = d.onetimePreKeys.first()
-                        deviceRepository.deleteOneTimePreKey(d.identityKey.toString(), oneTimePreKey.toString()).fold(
+                        deviceRepository.deleteOneTimePreKey(d.identityKey, oneTimePreKey).fold(
                             onSuccess = {
                                 call.respond(
                                     HttpStatusCode.OK,
@@ -165,7 +167,9 @@ fun Route.deviceRoutes() {
             call.application.environment.log.info("Registering new device for email: {}", registerBundle.userEmail)
 
 
-            if (registerBundle.userEmail.isBlank() || registerBundle.onetimePreKeys.isEmpty()
+            if (registerBundle.userEmail.isBlank() || registerBundle.onetimePreKeys.isEmpty() ||
+                registerBundle.identityKey.size != 32 || registerBundle.signedPreKey.size != 32 ||
+                registerBundle.preKeySignature.size != 64 || registerBundle.onetimePreKeys.any { it.size != 32 }
             ) {
                 call.application.environment.log.warn("Invalid device registration data for email: {}", registerBundle.userEmail)
                 call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing or invalid device registration fields"))
@@ -183,21 +187,22 @@ fun Route.deviceRoutes() {
 
             call.application.environment.log.info("Creating device with identity key {}", registerBundle.identityKey.toString())
 
+            val deviceId = Base64.getEncoder().encodeToString(registerBundle.identityKey)
             deviceRepository.create(
                 Device(
-                    userId = userId,
-                    identityKey = registerBundle.identityKey.encodeBase64(),
-                    signedPreKey = registerBundle.signedPreKey.encodeBase64(),
-                    preKeySignature = registerBundle.preKeySignature.encodeBase64(),
-                    onetimePreKeys = registerBundle.onetimePreKeys.map { it.encodeBase64() },
+                    userId = registerBundle.userEmail,
+                    identityKey = deviceId,
+                    signedPreKey = Base64.getEncoder().encodeToString(registerBundle.signedPreKey),
+                    preKeySignature = Base64.getEncoder().encodeToString(registerBundle.preKeySignature),
+                    onetimePreKeys = registerBundle.onetimePreKeys.map { Base64.getEncoder().encodeToString(it) },
                     isPrimary = false,
                     isOnline = false,
                     lastOnline = GMTDate().toString()
                 )
             ).fold(
                 onSuccess = { id ->
-                    call.respond(HttpStatusCode.Created, mapOf("deviceId" to id))
                     call.application.environment.log.info("Successfully created device with ID: {} for user ID: {}", id, userId)
+                    call.respond(HttpStatusCode.Created, mapOf("deviceId" to id))
                 },
                 onFailure = { e ->
                     call.application.environment.log.error("Failed to create device for user ID: {}. Error: {}", userId, e.message, e)

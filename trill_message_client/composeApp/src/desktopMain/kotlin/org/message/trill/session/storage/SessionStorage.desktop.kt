@@ -91,93 +91,132 @@ actual class SessionStorage {
 
     actual fun loadUserRecords(): Map<String, UserRecord> {
         val userRecords = mutableMapOf<String, UserRecord>()
-        queries.selectAllUserRecords().executeAsList().forEach { user ->
-            val devices = queries.selectDevicesByUser(user.user_id).executeAsList().associate { device ->
-                val sessions = queries.selectSessionsByDevice(user.user_id, device.device_id)
-                    .executeAsList().map { session ->
-                        Session(
-                            session.session_id,
-                            RatchetState.fromByteArray(session.ratchet_state),
-                            session.is_initiating == 1L,
-                            session.timestamp
-                        )
-                    }
-                val activeSession = sessions.find { it.sessionId == device.active_session_id }
-                val inactiveSessions = sessions.filter { it != activeSession }.toMutableList()
-                device.device_id to DeviceRecord(
-                    device.device_id,
-                    device.public_key,
-                    activeSession,
-                    inactiveSessions,
-                    device.is_stale == 1L,
-                    device.stale_since
+        try {
+            queries.selectAllUserRecords().executeAsList().forEach { user ->
+                val devices = queries.selectDevicesByUser(user.user_id).executeAsList().associate { device ->
+                    val sessions = queries.selectSessionsByDevice(user.user_id, device.device_id)
+                        .executeAsList().map { session ->
+                            Session(
+                                session.session_id,
+                                RatchetState.fromByteArray(session.ratchet_state),
+                                session.is_initiating == 1L,
+                                session.timestamp
+                            )
+                        }
+                    val activeSession = sessions.find { it.sessionId == device.active_session_id }
+                    val inactiveSessions = sessions.filter { it != activeSession }.toMutableList()
+                    println("Loaded device ${device.device_id.encodeToBase64()} for ${user.user_id} with ${sessions.size} sessions (active: ${activeSession?.sessionId})")
+                    device.device_id to DeviceRecord(
+                        device.device_id,
+                        device.public_key,
+                        activeSession,
+                        inactiveSessions,
+                        device.is_stale == 1L,
+                        device.stale_since
+                    )
+                }
+                userRecords[user.user_id] = UserRecord(
+                    user.user_id,
+                    user.nickname ?: "",
+                    devices.toMutableMap(),
+                    user.is_stale == 1L,
+                    user.stale_since
                 )
+                println("Loaded user record for ${user.user_id} with ${devices.size} devices")
             }
-            userRecords[user.user_id] = UserRecord(
-                user.user_id,
-                user.nickname ?: "",
-                devices.toMutableMap(),
-                user.is_stale == 1L,
-                user.stale_since
-            )
+            println("Loaded ${userRecords.size} user records")
+        } catch (e: Exception) {
+            println("Error loading user records: ${e.message}")
         }
         return userRecords
     }
 
     actual fun saveUserRecords(userRecords: MutableMap<String, UserRecord>) {
-        database.transaction {
-            userRecords.forEach { (userId, userRecord) ->
-                queries.insertOrReplaceUserRecord(
-                    user_id = userId,
-                    nickname = userRecord.nickname,
-                    is_stale = if (userRecord.isStale) 1 else 0,
-                    stale_since = userRecord.staleTransitionTimestamp
-                )
-                userRecord.devices.forEach { (deviceId, deviceRecord) ->
-                    queries.insertOrReplaceDeviceRecord(
+        try {
+            database.transaction {
+                userRecords.forEach { (userId, userRecord) ->
+                    queries.insertOrReplaceUserRecord(
                         user_id = userId,
-                        device_id = deviceId,
-                        public_key = deviceRecord.publicKey,
-                        is_stale = if (deviceRecord.isStale) 1 else 0,
-                        stale_since = deviceRecord.staleTransitionTimestamp,
-                        active_session_id = deviceRecord.activeSession?.sessionId
+                        nickname = userRecord.nickname,
+                        is_stale = if (userRecord.isStale) 1 else 0,
+                        stale_since = userRecord.staleTransitionTimestamp
                     )
-                    (listOfNotNull(deviceRecord.activeSession) + deviceRecord.inactiveSessions).forEach { session ->
-                        queries.insertOrReplaceSession(
-                            session_id = session.sessionId,
+                    println("Saved user record for $userId")
+                    userRecord.devices.forEach l1@{ (deviceId, deviceRecord) ->
+                        if (deviceRecord.publicKey.isEmpty()) {
+                            println("Skipping device $deviceId for $userId: Empty public key")
+                            return@l1
+                        }
+                        queries.insertOrReplaceDeviceRecord(
                             user_id = userId,
                             device_id = deviceId,
-                            ratchet_state = session.ratchetState.toByteArray(),
-                            is_initiating = if (session.isInitiating) 1 else 0,
-                            timestamp = session.timestamp
+                            public_key = decodeIdentityKey(deviceRecord.publicKey),
+                            is_stale = if (deviceRecord.isStale) 1 else 0,
+                            stale_since = deviceRecord.staleTransitionTimestamp,
+                            active_session_id = deviceRecord.activeSession?.sessionId
                         )
+                        println("Saved device record $deviceId for $userId")
+                        (listOfNotNull(deviceRecord.activeSession) + deviceRecord.inactiveSessions).forEach { session ->
+                            try {
+                                queries.insertOrReplaceSession(
+                                    session_id = session.sessionId,
+                                    user_id = userId,
+                                    device_id = deviceId,
+                                    ratchet_state = session.ratchetState.toByteArray(),
+                                    is_initiating = if (session.isInitiating) 1 else 0,
+                                    timestamp = session.timestamp
+                                )
+                                println("Saved session ${session.sessionId} for device $deviceId of $userId")
+                            } catch (e: Exception) {
+                                println("Error saving session ${session.sessionId} for $userId/$deviceId: ${e.message}")
+                            }
+                        }
                     }
                 }
             }
+            println("Saved ${userRecords.size} user records")
+        } catch (e: Exception) {
+            println("Error saving user records: ${e.message}")
+            throw Exception("Error saving user records: ${e.message}")
         }
     }
 
     actual fun saveDeviceRecord(userEmail: String, nickname: String, record: DeviceRecord) {
-        database.transaction {
-            queries.insertOrReplaceUserRecord(userEmail, nickname, 0, null)
-            queries.insertOrReplaceDeviceRecord(
-                user_id = userEmail,
-                device_id = record.deviceId,
-                public_key = record.publicKey,
-                is_stale = if (record.isStale) 1 else 0,
-                stale_since = record.staleTransitionTimestamp,
-                active_session_id = record.activeSession?.sessionId
-            )
-            (listOfNotNull(record.activeSession) + record.inactiveSessions).forEach { session ->
-                queries.insertOrReplaceSession(
-                    session_id = session.sessionId,
+        try {
+            database.transaction {
+                queries.insertOrReplaceUserRecord(userEmail, nickname, 0, null)
+                if (record.publicKey.isEmpty()) {
+                    println("Skipping device record for $userEmail: Empty public key")
+                    return@transaction
+                }
+                queries.insertOrReplaceDeviceRecord(
                     user_id = userEmail,
                     device_id = record.deviceId,
-                    ratchet_state = session.ratchetState.toByteArray(),
-                    is_initiating = if (session.isInitiating) 1 else 0,
-                    timestamp = session.timestamp
+                    public_key = decodeIdentityKey(record.publicKey),
+                    is_stale = if (record.isStale) 1 else 0,
+                    stale_since = record.staleTransitionTimestamp,
+                    active_session_id = record.activeSession?.sessionId
                 )
+                (listOfNotNull(record.activeSession) + record.inactiveSessions).forEach { session ->
+                    try {
+                        queries.insertOrReplaceSession(
+                            session_id = session.sessionId,
+                            user_id = userEmail,
+                            device_id = record.deviceId,
+                            ratchet_state = session.ratchetState.toByteArray(),
+                            is_initiating = if (session.isInitiating) 1 else 0,
+                            timestamp = session.timestamp
+                        )
+                        println("Saved session ${session.sessionId} for device ${record.deviceId} of $userEmail")
+                    } catch (e: Exception) {
+                        println("Error saving session ${session.sessionId} for $userEmail/${record.deviceId}: ${e.message}")
+                    }
+                }
+                println("Saved device record ${record.deviceId} for $userEmail")
             }
+        } catch (e: Exception) {
+            println("Error saving device record for $userEmail: ${e.message}")
+            throw Exception("Error saving device record for $userEmail: ${e.message}")
         }
     }
 
@@ -192,16 +231,27 @@ actual class SessionStorage {
     }
 
     actual fun setClientInfo(userEmail: String, userNickname: String, deviceId: String) {
+        if (!isBase64(deviceId)) {
+            throw IllegalArgumentException("Invalid deviceId format for $userEmail: $deviceId")
+        }
+        println("Setting client info: userEmail=$userEmail, deviceId=$deviceId")
+
         queries.insertOrReplaceClientInfo(userEmail, userNickname, deviceId)
     }
 
     actual fun getDevicePublicKey(userEmail: String): ByteArray? {
-        val publicKey = queries.selectDevicesByUser(user_id = userEmail)
-            .executeAsList()
-            .find { it.device_id == loadDeviceId(userEmail) }
-            ?.public_key
-        println("Retrieved device publicKey for userEmail=$userEmail: ${publicKey?.encodeToBase64()}")
-        return publicKey
+        try {
+            val deviceId = loadDeviceId(userEmail)
+            val publicKey = queries.selectDevicesByUser(user_id = userEmail)
+                .executeAsList()
+                .find { it.device_id == deviceId }
+                ?.public_key
+            println("Retrieved device publicKey for userEmail=$userEmail, deviceId=$deviceId: ${publicKey?.encodeToBase64()}")
+            return publicKey?.takeIf { it.size == 32 }
+        } catch (e: Exception) {
+            println("Error retrieving device public key for $userEmail: ${e.message}")
+            return null
+        }
     }
 
     actual fun listClientInfos(): List<Triple<String, String?, String>> {
@@ -210,5 +260,28 @@ actual class SessionStorage {
         }
     }
 
+    private fun decodeIdentityKey(key: ByteArray): ByteArray {
+        return try {
+            if (key.size == 32) {
+                key
+            } else {
+                throw IllegalArgumentException("Identity key must be 32 bytes, got ${key.size}")
+            }
+        } catch (e: Exception) {
+            throw Exception("Failed to decode identity key: ${e.message}")
+        }
+    }
+
+    private fun isBase64(str: String): Boolean {
+        return try {
+            Base64.getDecoder().decode(str)
+            true
+        } catch (e: IllegalArgumentException) {
+            false
+        }
+    }
+
     private fun ByteArray.encodeToBase64(): String = Base64.getEncoder().encodeToString(this)
+    private fun String.decodeBase64(): ByteArray = Base64.getDecoder().decode(this)
+    private fun String.encodeToBase64(): ByteArray = Base64.getEncoder().encode(this.toByteArray())
 }

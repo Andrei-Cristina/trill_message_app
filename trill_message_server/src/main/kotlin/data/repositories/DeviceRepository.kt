@@ -34,7 +34,6 @@ class DeviceRepository(): KoinComponent {
         kotlin.runCatching {
             val doc = item.toDocument()
             collection.insertOne(doc)
-            println("inserted device: $doc")
             doc["_id"].toString()
         }
     }
@@ -54,11 +53,11 @@ class DeviceRepository(): KoinComponent {
 
     suspend fun getById(id: ByteArray): Result<Device> = withContext(Dispatchers.IO) {
         kotlin.runCatching {
-            collection.find(Filters.eq("identityKey", id.encodeBase64()))
+            val idBase64 = Base64.getEncoder().encodeToString(id)
+            collection.find(Filters.eq("identityKey", idBase64))
                 .first()
-                ?.let { document ->
-                    json.decodeFromString<Device>(document.toJson())
-                } ?: throw NoSuchElementException("Device identity is invalid")
+                ?.let { document -> Device.fromDocument(document) }
+                ?: throw NoSuchElementException("Device identity is invalid")
         }
     }
 
@@ -66,9 +65,8 @@ class DeviceRepository(): KoinComponent {
         kotlin.runCatching {
             collection.find(Filters.and(Filters.eq("userId", userId), Filters.eq("isPrimary", true)))
                 .first()
-                ?.let { document ->
-                    json.decodeFromString<Device>(document.toJson())
-                } ?: throw NoSuchElementException("Primary device not found!")
+                ?.let { document -> Device.fromDocument(document) }
+                ?: throw NoSuchElementException("Primary device not found!")
         }
     }
 
@@ -79,16 +77,15 @@ class DeviceRepository(): KoinComponent {
         }
     }
 
-    suspend fun update(id: String, item: Device): Result<Document?> =
+    suspend fun update(id: String, item: Device): Result<Document?> = withContext(Dispatchers.IO) {
         kotlin.runCatching {
-            withContext(Dispatchers.IO) {
-                collection.findOneAndUpdate(
-                    Filters.eq("identityKey", id),
-                    Document("\$set", item.toDocument()),
-                    FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER)
-                )
-            }
+            collection.findOneAndUpdate(
+                Filters.eq("identityKey", id),
+                Document("\$set", item.toDocument()),
+                FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER)
+            )
         }
+    }
 
     suspend fun delete(id: String): Result<Document?> = withContext(Dispatchers.IO) {
         kotlin.runCatching {

@@ -7,6 +7,7 @@ import org.message.trill.session.sesame.DeviceRecord
 import org.message.trill.session.sesame.SesameManager
 import org.message.trill.session.sesame.UserRecord
 import org.message.trill.session.storage.SessionStorage
+import java.util.*
 
 actual class MessageClient actual constructor() {
     private val sessionStorage = SessionStorage()
@@ -30,12 +31,16 @@ actual class MessageClient actual constructor() {
         val oneTimePreKeys = keyManager.generateOneTimePreKeys(10)
         sessionStorage.storeOneTimePreKeys(email, oneTimePreKeys)
 
-        sessionStorage.setClientInfo(email, nickname, identityKey.publicKey.toString())
-        sessionStorage.saveDeviceRecord(email, nickname, DeviceRecord(identityKey.publicKey.toString(), identityKey.publicKey, null))
+        val deviceId = identityKey.publicKey.encodeToBase64()
+        sessionStorage.setClientInfo(email, nickname, deviceId)
+        sessionStorage.saveDeviceRecord(email, nickname, DeviceRecord(deviceId, identityKey.publicKey, null))
         networkManager.registerDevice(email, identityKey = identityKey.publicKey, signedPreKey = signedPreKey, oneTimePreKeys = oneTimePreKeys)
     }
 
+
+
     actual suspend fun sendMessage(senderId: String, recipientUserId: String, plaintext: String) {
+        println("Sending message: $plaintext to server")
         sesameManager.sendMessage(senderId ,recipientUserId, plaintext.toByteArray(Charsets.UTF_8))
     }
 
@@ -62,4 +67,6 @@ actual class MessageClient actual constructor() {
     actual suspend fun searchUsersByEmail(email: String): List<String> {
         return networkManager.searchUsersByEmail(email)
     }
+
+    private fun ByteArray.encodeToBase64(): String = Base64.getEncoder().encodeToString(this)
 }

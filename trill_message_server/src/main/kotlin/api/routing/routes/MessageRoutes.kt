@@ -11,6 +11,7 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.koin.ktor.ext.inject
+import java.util.*
 
 fun Route.messageRoutes() {
     val userRepository: UserRepository by inject()
@@ -41,6 +42,14 @@ fun Route.messageRoutes() {
                     return@post
                 }
 
+                try {
+                    Base64.getDecoder().decode(message.senderDeviceId)
+                    Base64.getDecoder().decode(message.recipientDeviceId)
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.BadRequest, "Invalid device ID format")
+                    return@post
+                }
+
                 val senderDevices = deviceRepository.getAllDevices(message.senderId).getOrElse { emptyList() }
                 val recipientDevices = deviceRepository.getAllDevices(message.recipientId).getOrElse { emptyList() }
 
@@ -67,14 +76,14 @@ fun Route.messageRoutes() {
                 )
             }
 
-            call.respond(HttpStatusCode.OK, "Messages received successfully")
             call.application.environment.log.info("Successfully processed {} messages", request.messages.size)
+            call.respond(HttpStatusCode.OK, "Messages received successfully")
         }
 
         get("/{userId}/{deviceId}") {
             val userId = call.parameters["userId"]!!
             val deviceId = call.parameters["deviceId"]!!
-            call.application.environment.log.info("Fetching messages for user: {} and device: {}", userId, deviceId)
+            //call.application.environment.log.info("Fetching messages for user: {} and device: {}", userId, deviceId)
 
             if (!userRepository.getByEmail(userId).isSuccess) {
                 call.application.environment.log.warn("User not found: {}", userId)
@@ -82,10 +91,17 @@ fun Route.messageRoutes() {
                 return@get
             }
 
+            try {
+                Base64.getDecoder().decode(deviceId)
+            } catch (e: Exception) {
+                call.respond(HttpStatusCode.BadRequest, "Invalid device ID format")
+                return@get
+            }
+
             messageRepository.getByRecipient(userId, deviceId).fold(
                 onSuccess = { messages ->
-                    call.respond(HttpStatusCode.OK, messages)
                     call.application.environment.log.info("Returned {} messages for user: {} and device: {}", messages.size, userId, deviceId)
+                    call.respond(HttpStatusCode.OK, messages)
                 },
                 onFailure = { e ->
                     call.application.environment.log.error("Failed to fetch messages: $e")

@@ -16,6 +16,7 @@ class DoubleRatchet(
         val header = Header(state.dhs.second, state.pn, state.ns)
         state.ns++
 
+
         val ciphertext = EncryptionUtils.encrypt(mk, plaintext, ad + header.toByteArray())
 
         return header to ciphertext
@@ -47,9 +48,9 @@ class DoubleRatchet(
     }
 
     private fun kdfCk(ck: ByteArray): Pair<ByteArray, ByteArray> {
-        val output = EncryptionUtils.hkdf(ck, "CK".toByteArray(), "TRILL".toByteArray(), 64)
+        val output = EncryptionUtils.hkdf(ck, "CK".toByteArray(), "TRILL".toByteArray(), 96)
 
-        return output.copyOfRange(0, 32) to output.copyOfRange(32, 64)
+        return output.copyOfRange(0, 32) to output.copyOfRange(32, 96)
     }
 
     private fun trySkippedKeys(message: MessageContent, ad: ByteArray): ByteArray? {

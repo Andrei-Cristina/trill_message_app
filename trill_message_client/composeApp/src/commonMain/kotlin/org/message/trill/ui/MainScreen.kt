@@ -108,7 +108,9 @@ fun MainScreen(client: MessageClient, userEmail: String) {
                         scope.launch {
                             try {
                                 client.sendMessage(userEmail, contact, message)
+
                                 val updated = conversations.toMutableMap()
+
                                 updated[contact] = (updated[contact] ?: mutableListOf()).apply {
                                     add(ConversationMessage(message, true, Clock.System.now().toString()))
                                 }
@@ -116,6 +118,7 @@ fun MainScreen(client: MessageClient, userEmail: String) {
                                 errorMessage = null
                             } catch (e: Exception) {
                                 logger.error("Failed to send message to $contact", e)
+                                println("Failed to send message to $contact, ${e.message}")
                                 errorMessage = "Failed to send message. Please try again."
                             }
                         }

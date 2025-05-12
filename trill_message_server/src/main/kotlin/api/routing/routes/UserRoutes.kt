@@ -40,7 +40,7 @@ fun Route.userRoutes() {
             call.application.environment.log.info("$loginRequest")
 
             val deviceId = deviceRepository.getById(loginRequest.identityKey).fold(
-                onSuccess = { it },
+                onSuccess = { device -> device.identityKey },
                 onFailure = { e ->
                     call.application.environment.log.info("Device not found for user ID: $userId, identityKey: ${loginRequest.identityKey}")
                     call.respond(HttpStatusCode.NotFound, mapOf("error" to "Device not registered"))
@@ -48,8 +48,8 @@ fun Route.userRoutes() {
                 }
             )
 
-            call.respond(HttpStatusCode.OK, mapOf("deviceId" to deviceId.toString()))
             call.application.environment.log.info("Successfully logged in user with email: ${loginRequest.email}, deviceId: $deviceId")
+            call.respond(HttpStatusCode.OK, mapOf("deviceId" to deviceId.toString()))
         }
     }
 
@@ -72,8 +72,8 @@ fun Route.userRoutes() {
 
             userRepository.getByEmail(email).fold(
                 onSuccess = { user ->
-                    call.respond(HttpStatusCode.OK, user)
                     call.application.environment.log.info("Successfully fetched user with email: {}", email)
+                    call.respond(HttpStatusCode.OK, user)
                 },
                 onFailure = { e ->
                     call.application.environment.log.warn("User not found for email: {}. Error: {}", email, e.message)
@@ -152,8 +152,8 @@ fun Route.userRoutes() {
                 )
             ).fold(
                 onSuccess = {
-                    call.respond(HttpStatusCode.Created, mapOf("message" to "User created successfully"))
                     call.application.environment.log.info("Successfully created user with email: {}", userRequest.email)
+                    call.respond(HttpStatusCode.Created, mapOf("message" to "User created successfully"))
                 },
                 onFailure = { e ->
                     call.application.environment.log.error("Failed to create user with email: {}. Error: {}", userRequest.email, e.message, e)

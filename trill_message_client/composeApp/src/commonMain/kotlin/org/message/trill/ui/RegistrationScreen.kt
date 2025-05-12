@@ -81,6 +81,7 @@ fun RegistrationScreen(
                         }
                         errorMessage = null
                     } catch (e: Exception) {
+                        println("Failed to receive messages for ${e.message}")
                         errorMessage = "Operation failed: ${e.message}"
                     }
                 }
