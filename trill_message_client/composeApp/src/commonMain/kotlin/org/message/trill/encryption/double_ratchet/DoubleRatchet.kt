@@ -10,7 +10,13 @@ class DoubleRatchet(
     private val state: RatchetState
 ) {
     fun encrypt(plaintext: ByteArray, ad: ByteArray): Pair<Header, ByteArray> {
-        println("DoubleRatchet.encrypt: plaintext=${plaintext.decodeToString()}, ad=${ad.encodeToBase64()}, cks=${state.cks?.encodeToBase64() ?: "null"}")
+        println("DoubleRatchet.encrypt: plaintext=${plaintext.decodeToString()}, ad=${ad.encodeToBase64()}, cks=${state.cks?.encodeToBase64() ?: "null"}, ns=${state.ns}")
+        if (state.ns == 0 && state.dhr != null) {
+            println("DoubleRatchet.encrypt: Performing sender DH ratchet step for first message")
+            senderDhRatchetStep()
+            println("DoubleRatchet.encrypt: After DH ratchet - dhs.public=${state.dhs.second.encodeToBase64()}, cks=${state.cks?.encodeToBase64() ?: "null"}")
+        }
+
         val (ck, mk) = kdfCk(state.cks!!)
         println("DoubleRatchet.encrypt: new chainKey=${ck.encodeToBase64()}, messageKey=${mk.encodeToBase64()}")
         state.cks = ck
@@ -19,13 +25,17 @@ class DoubleRatchet(
         println("DoubleRatchet.encrypt: header.dh=${header.dh.encodeToBase64()}, header.pn=${header.pn}, header.n=${header.n}")
         state.ns++
 
-        val ciphertext = EncryptionUtils.encrypt(mk, plaintext, ad + header.toByteArray())
+        val fullAd = ad + header.toByteArray()
+        println("DoubleRatchet.encrypt: full associated data=${fullAd.encodeToBase64()}")
+
+        val ciphertext = EncryptionUtils.encrypt(mk, plaintext, fullAd)
         println("DoubleRatchet.encrypt: ciphertext=${ciphertext.encodeToBase64()}")
+
         return header to ciphertext
     }
 
     fun decrypt(message: MessageContent, ad: ByteArray): ByteArray {
-        println("DoubleRatchet.decrypt: header.dh=${message.header.dh.encodeToBase64()}, header.n=${message.header.n}, header.pn=${message.header.pn}, ciphertext=${message.ciphertext.encodeToBase64()}, ad=${ad.encodeToBase64()}, ckr=${state.ckr?.encodeToBase64() ?: "null"}, dhr=${state.dhr?.encodeToBase64() ?: "null"}")
+        println("DoubleRatchet.decrypt: header.dh=${message.header.dh.encodeToBase64()}, header.n=${message.header.n}, header.pn=${message.header.pn}, ciphertext=${message.ciphertext.encodeToBase64()}, ad=${ad.encodeToBase64()}, ckr=${state.ckr?.encodeToBase64() ?: "null"}, dhr=${state.dhr?.encodeToBase64() ?: "null"}, ns=${state.ns}, nr=${state.nr}, pn=${state.pn}")
 
         val skippedKey = trySkippedKeys(message, ad)
         if (skippedKey != null) {
@@ -37,6 +47,7 @@ class DoubleRatchet(
             println("DoubleRatchet.decrypt: Performing DH ratchet step due to new header.dh")
             skipMessageKeys(message.header.pn)
             dhRatchetStep(message.header)
+            println("DoubleRatchet.decrypt: After DH ratchet - dhs.public=${state.dhs.second.encodeToBase64()}, dhr=${state.dhr?.encodeToBase64() ?: "null"}, rk=${state.rk.encodeToBase64()}, cks=${state.cks?.encodeToBase64() ?: "null"}, ckr=${state.ckr?.encodeToBase64() ?: "null"}")
         }
 
         skipMessageKeys(message.header.n)
@@ -45,8 +56,12 @@ class DoubleRatchet(
         state.ckr = ck
         state.nr++
 
-        val plaintext = EncryptionUtils.decrypt(mk, message.ciphertext, ad + message.header.toByteArray())
+        val fullAd = ad + message.header.toByteArray()
+        println("DoubleRatchet.decrypt: full associated data=${fullAd.encodeToBase64()}")
+
+        val plaintext = EncryptionUtils.decrypt(mk, message.ciphertext, fullAd)
         println("DoubleRatchet.decrypt: plaintext=${plaintext.decodeToString()}")
+
         return plaintext
     }
 
@@ -88,6 +103,19 @@ class DoubleRatchet(
             state.ckr = ck
             state.nr++
         }
+    }
+
+    private fun senderDhRatchetStep() {
+        println("senderDhRatchetStep: current dhr=${state.dhr?.encodeToBase64() ?: "null"}, cks=${state.cks?.encodeToBase64() ?: "null"}")
+        val newDhs = EncryptionUtils.generateKeyPair()
+        println("senderDhRatchetStep: new dhs.public=${newDhs.second.encodeToBase64()}")
+        val dhSend = EncryptionUtils.dh(newDhs.first, state.dhr!!)
+        println("senderDhRatchetStep: dhSend=${dhSend.encodeToBase64()}")
+        val (newRk, newCks) = kdfRk(state.rk, dhSend)
+        println("senderDhRatchetStep: new rk=${newRk.encodeToBase64()}, new cks=${newCks.encodeToBase64()}")
+        state.rk = newRk
+        state.cks = newCks
+        state.dhs = newDhs
     }
 
     private fun dhRatchetStep(header: Header) {
