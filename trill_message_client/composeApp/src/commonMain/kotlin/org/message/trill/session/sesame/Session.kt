@@ -7,4 +7,6 @@ data class Session(
     val ratchetState: RatchetState,
     val isInitiating: Boolean = false,
     val timestamp: Long = System.currentTimeMillis()
-)
+) {
+
+}

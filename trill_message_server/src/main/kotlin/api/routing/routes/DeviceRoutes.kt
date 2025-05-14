@@ -126,9 +126,7 @@ fun Route.deviceRoutes() {
 
                     device?.let { d ->
                         val oneTimePreKey = d.onetimePreKeys.first()
-                        deviceRepository.deleteOneTimePreKey(d.identityKey, oneTimePreKey).fold(
-                            onSuccess = {
-                                call.respond(
+                        call.respond(
                                     HttpStatusCode.OK,
                                     DeviceKeyBundle(
                                         d.identityKey,
@@ -138,12 +136,25 @@ fun Route.deviceRoutes() {
                                     )
                                 )
                                 call.application.environment.log.info("Returned key bundle for device with identity key: {} for email: {}", d.identityKey, recipientEmail)
-                            },
-                            onFailure = { e ->
-                                call.application.environment.log.error("Failed to delete one-time pre-key for device: {}. Error: {}", d.identityKey, e.message, e)
-                                call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to process device keys"))
-                            }
-                        )
+
+//                        deviceRepository.deleteOneTimePreKey(d.identityKey, oneTimePreKey).fold(
+//                            onSuccess = {
+//                                call.respond(
+//                                    HttpStatusCode.OK,
+//                                    DeviceKeyBundle(
+//                                        d.identityKey,
+//                                        d.signedPreKey,
+//                                        d.preKeySignature,
+//                                        oneTimePreKey
+//                                    )
+//                                )
+//                                call.application.environment.log.info("Returned key bundle for device with identity key: {} for email: {}", d.identityKey, recipientEmail)
+//                            },
+//                            onFailure = { e ->
+//                                call.application.environment.log.error("Failed to delete one-time pre-key for device: {}. Error: {}", d.identityKey, e.message, e)
+//                                call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to process device keys"))
+//                            }
+//                        )
                     } ?: run {
                         call.application.environment.log.warn("No suitable device found with one-time pre-keys for user ID: {}", recipientId)
                         call.respond(HttpStatusCode.NotFound, mapOf("error" to "No suitable device found"))

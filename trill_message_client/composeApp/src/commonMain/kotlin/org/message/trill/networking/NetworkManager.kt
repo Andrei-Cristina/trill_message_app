@@ -1,15 +1,16 @@
 package org.message.trill.networking
 
-import io.ktor.client.HttpClient
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.request.get
+import io.ktor.client.*
+import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.request.*
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.*
-import io.ktor.http.ContentType
-import io.ktor.http.HttpStatusCode
+import io.ktor.http.*
 import io.ktor.http.contentType
-import io.ktor.serialization.kotlinx.json.json
+import io.ktor.serialization.kotlinx.json.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import org.message.trill.encryption.keys.PreKey
 import org.message.trill.encryption.keys.PrekeyBundle
@@ -21,7 +22,8 @@ import org.message.trill.networking.models.EmailSearchRequest
 import org.message.trill.networking.models.LoginRequest
 import org.message.trill.networking.models.RegisterUserRequest
 import org.slf4j.LoggerFactory
-import java.util.Base64
+import java.net.URLEncoder
+import java.util.*
 
 class NetworkManager {
     private val client = HttpClient {
@@ -74,8 +76,6 @@ class NetworkManager {
     }
 
     suspend fun registerDevice(userEmail: String, identityKey: ByteArray, signedPreKey: SignedPreKey, oneTimePreKeys: List<PreKey>): String {
-        val logger = LoggerFactory.getLogger("Client")
-
         val bundle = DeviceRegistrationBundle(
             userEmail = userEmail,
             identityKey = identityKey,
@@ -90,7 +90,7 @@ class NetworkManager {
         }
 
         val jsonPayload = Json.encodeToString(bundle)
-        logger.info("Sending JSON to server: $jsonPayload")
+        println("Sending JSON to server: $jsonPayload")
 
         when (response.status) {
             HttpStatusCode.Created -> {
@@ -155,12 +155,43 @@ class NetworkManager {
     }
 
     suspend fun fetchMessages(userId: String, deviceId: String): List<Message> {
-        val response = client.get("$baseUrl/messages/$userId/$deviceId") {
-            contentType(ContentType.Application.Json)
+        val encodedUserId = withContext(Dispatchers.IO) {
+            URLEncoder.encode(userId, "UTF-8")
         }
-
-        return Json.decodeFromString(response.bodyAsText())
+        val encodedDeviceId = withContext(Dispatchers.IO) {
+            URLEncoder.encode(deviceId, "UTF-8")
+        }
+        println("Fetching messages for $userId/$deviceId")
+        try {
+            val response = client.get("$baseUrl/messages/$encodedUserId/$encodedDeviceId") {
+                contentType(ContentType.Application.Json)
+            }
+            println("Fetch messages response: ${response.status}, body: ${response.bodyAsText()}")
+            return when (response.status) {
+                HttpStatusCode.OK -> {
+                    val body = response.bodyAsText()
+                    if (body.isEmpty() || body == "[]") {
+                        println("No messages found for $userId/$encodedDeviceId")
+                        emptyList()
+                    } else {
+                        Json.decodeFromString<List<Message>>(body)
+                    }
+                }
+                HttpStatusCode.NotFound -> {
+                    println("No messages or user/device not found for $userId/$encodedDeviceId")
+                    emptyList()
+                }
+                else -> {
+                    println("Unexpected response: ${response.status}, body: ${response.bodyAsText()}")
+                    throw Exception("Unexpected response: ${response.status}")
+                }
+            }
+        } catch (e: Exception) {
+            println("Error fetching messages for $userId/$encodedDeviceId: ${e.message}")
+            return emptyList()
+        }
     }
+
 
     suspend fun searchUsersByEmail(email: String): List<String> {
         try {

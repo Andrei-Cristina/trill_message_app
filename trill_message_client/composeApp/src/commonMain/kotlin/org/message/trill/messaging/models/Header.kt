@@ -6,9 +6,10 @@ import kotlinx.serialization.Serializable
 data class Header(
     val dh: ByteArray,
     val pn: Int,
-    val n: Int
+    val n: Int,
+    var ek: ByteArray = byteArrayOf(),
 ) {
-    fun toByteArray(): ByteArray = dh + pn.toByteArray() + n.toByteArray()
+    fun toByteArray(): ByteArray = dh + pn.toByteArray() + n.toByteArray() + ek
 
     private fun Int.toByteArray(): ByteArray = ByteArray(32) { (this shr (24 - it * 8)).toByte() }
 

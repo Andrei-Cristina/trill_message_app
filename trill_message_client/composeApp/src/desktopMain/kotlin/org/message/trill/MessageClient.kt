@@ -50,6 +50,23 @@ actual class MessageClient actual constructor() {
             val plaintext = sesameManager.receiveMessage(message)
             ReceivedMessage(message.senderId, plaintext, message.timestamp)
         }
+
+//        val deviceId = sessionStorage.loadDeviceId(email)
+//        println("receiveMessages: email=$email, deviceId=$deviceId")
+//
+//        val messages = networkManager.fetchMessages(email, deviceId)
+//        println("Fetched ${messages.size} messages for $email: ${messages.map { "${it.senderId}/${it.recipientDeviceId}" }}")
+//
+//        if (messages.isEmpty()) {
+//            println("No messages found for $email/$deviceId")
+//        }
+//
+//        return messages.map { message ->
+//            println("Processing message from ${message.senderId}/${message.senderDeviceId} to ${message.recipientId}/${message.recipientDeviceId}")
+//
+//            val plaintext = sesameManager.receiveMessage(message)
+//            ReceivedMessage(message.senderId, plaintext, message.timestamp)
+//        }
     }
 
     actual suspend fun loginUser(email: String, nickname: String): String {

@@ -6,7 +6,8 @@ import kotlinx.serialization.Serializable
 data class Header(
     val dh: ByteArray,
     val pn: Int,
-    val n: Int
+    val n: Int,
+    var ek: ByteArray = byteArrayOf(),
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

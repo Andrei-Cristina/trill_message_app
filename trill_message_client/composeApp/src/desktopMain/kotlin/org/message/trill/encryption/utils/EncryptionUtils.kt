@@ -39,67 +39,97 @@ actual object EncryptionUtils {
 
     actual fun generateKeyPair(): Pair<ByteArray, ByteArray> {
         val keyPair = sodium.cryptoBoxKeypair()
+        println("generateKeyPair: privateKey=${keyPair.secretKey.asBytes.encodeToBase64()}, publicKey=${keyPair.publicKey.asBytes.encodeToBase64()}")
+
         return keyPair.secretKey.asBytes to keyPair.publicKey.asBytes
     }
 
     actual fun dh(privateKey: ByteArray, publicKey: ByteArray): ByteArray {
+        println("dh: privateKey=${privateKey.encodeToBase64()}, publicKey=${publicKey.encodeToBase64()}")
         val sharedSecret = ByteArray(32)
-
         if (!sodium.cryptoScalarMult(sharedSecret, privateKey, publicKey)) {
+            println("Diffie-Hellman computation failed")
             throw Exception("Diffie-Hellman computation failed")
         }
-
+        println("dh: sharedSecret=${sharedSecret.encodeToBase64()}")
         return sharedSecret
     }
 
     actual fun sha256(input: ByteArray): ByteArray {
-        return sodium.cryptoHashSha256(input.toString()).toByteArray()
+        println("sha256: input=${input.encodeToBase64()}")
+        val hash = sodium.cryptoHashSha256(input.toString()).toByteArray()
+        println("sha256: hash=${hash.encodeToBase64()}")
+
+        return hash
     }
 
+//    actual fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray {
+//        println("hmacSha256: key=${key.encodeToBase64()}, data=${data.encodeToBase64()}")
+//        val out = ByteArray(32)
+//        if (!sodium.cryptoAuthHMACSha256(out, data, data.size.toLong(), key)) {
+//            println("HMAC-SHA256 computation failed")
+//            throw Exception("HMAC-SHA256 computation failed")
+//        }
+//        println("hmacSha256: output=${out.encodeToBase64()}")
+//        return out
+//    }
+
     actual fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray {
-        val out = ByteArray(32)
-
-        if (!sodium.cryptoAuthHMACSha256(out, data, data.size.toLong(), key)) {
-            throw Exception("HMAC-SHA256 computation failed")
-        }
-
-        return out
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(key, "HmacSHA256"))
+        return mac.doFinal(data)
     }
 
     actual fun hkdf(salt: ByteArray, ikm: ByteArray, info: ByteArray, length: Int): ByteArray {
+        println("hkdf: salt=${salt.encodeToBase64()}, ikm=${ikm.encodeToBase64()}, info=${info.decodeToString()}, length=$length")
         // Extract phase: PRK = HMAC-SHA256(salt, IKM)
         val prk = hmacSha256(salt, ikm)
+        println("hkdf: prk=${prk.encodeToBase64()}")
         val hashLen = 32
         val n = (length + hashLen - 1) / hashLen
 
-        if (n > 255) throw Exception("Output length too large for HKDF (max 8160 bytes)")
+        if (n > 255) {
+            println("Output length too large for HKDF (max 8160 bytes)")
+            throw Exception("Output length too large for HKDF (max 8160 bytes)")
+        }
 
         val okm = ByteArray(n * hashLen)
         var t = ByteArray(0)
         // Expand phase
         for (i in 1..n) {
             val input = t + info + byteArrayOf(i.toByte())
+            println("hkdf: iteration $i, input=${input.encodeToBase64()}")
             t = hmacSha256(prk, input)
+            println("hkdf: t=${t.encodeToBase64()}")
             t.copyInto(okm, (i - 1) * hashLen)
         }
-        return okm.copyOf(length)
+        val result = okm.copyOf(length)
+        println("hkdf: output=${result.encodeToBase64()}")
+        return result
     }
 
     actual fun encrypt(key: ByteArray, plaintext: ByteArray, ad: ByteArray): ByteArray {
-        if (key.size != 64) throw Exception("Key must be 64 bytes for AES-256 CBC + HMAC-SHA256")
+        println("encrypt: key=${key.encodeToBase64()}, plaintext=${plaintext.decodeToString()}, ad=${ad.encodeToBase64()}")
+        if (key.size != 64) {
+            println("Key must be 64 bytes for AES-256 CBC + HMAC-SHA256, got ${key.size}")
+            throw Exception("Key must be 64 bytes for AES-256 CBC + HMAC-SHA256")
+        }
 
         // Split the key into encryption and MAC keys
-        val encKey = key.copyOfRange(0, 32) // AES-256 key
-        val macKey = key.copyOfRange(32, 64) // HMAC-SHA256 key
+        val encKey = key.copyOfRange(0, 32)
+        val macKey = key.copyOfRange(32, 64)
+        println("encrypt: encKey=${encKey.encodeToBase64()}, macKey=${macKey.encodeToBase64()}")
 
-        // Generate a random IV(initialization vector) for AES-CBC
+        // Generate a random IV
         val iv = ByteArray(16)
         sodium.randomBytesBuf(iv.size).copyInto(iv)
+        println("encrypt: iv=${iv.encodeToBase64()}")
 
         // Encrypt with AES-256 CBC
         val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(encKey, "AES"), IvParameterSpec(iv))
         val ciphertext = cipher.doFinal(plaintext)
+        println("encrypt: ciphertext=${ciphertext.encodeToBase64()}")
 
         // Compute HMAC-SHA256 over AD, IV, and ciphertext
         val mac = Mac.getInstance("HmacSHA256")
@@ -108,23 +138,36 @@ actual object EncryptionUtils {
         mac.update(iv)
         mac.update(ciphertext)
         val hmac = mac.doFinal()
+        println("encrypt: hmac=${hmac.encodeToBase64()}")
 
         // Return IV + ciphertext + HMAC
-        return iv + ciphertext + hmac
+        val result = iv + ciphertext + hmac
+        println("encrypt: output=${result.encodeToBase64()}, size=${result.size}")
+
+        return result
     }
 
     actual fun decrypt(key: ByteArray, ciphertext: ByteArray, ad: ByteArray): ByteArray {
-        if (key.size != 64) throw Exception("Key must be 64 bytes for AES-256 CBC + HMAC-SHA256")
-        if (ciphertext.size < 16 + 32) throw Exception("Ciphertext too short (missing IV or HMAC)")
+        println("decrypt: key=${key.encodeToBase64()}, ciphertext=${ciphertext.encodeToBase64()}, ad=${ad.encodeToBase64()}")
+        if (key.size != 64) {
+            println("Key must be 64 bytes for AES-256 CBC + HMAC-SHA256, got ${key.size}")
+            throw Exception("Key must be 64 bytes for AES-256 CBC + HMAC-SHA256")
+        }
+        if (ciphertext.size < 16 + 32) {
+            println("Ciphertext too short (missing IV or HMAC), size=${ciphertext.size}")
+            throw Exception("Ciphertext too short (missing IV or HMAC)")
+        }
 
         // Split the key into encryption and MAC keys
         val encKey = key.copyOfRange(0, 32)
         val macKey = key.copyOfRange(32, 64)
+        println("decrypt: encKey=${encKey.encodeToBase64()}, macKey=${macKey.encodeToBase64()}")
 
         // Extract IV, ciphertext, and HMAC
         val iv = ciphertext.copyOfRange(0, 16)
         val actualCiphertext = ciphertext.copyOfRange(16, ciphertext.size - 32)
         val receivedHmac = ciphertext.copyOfRange(ciphertext.size - 32, ciphertext.size)
+        println("decrypt: iv=${iv.encodeToBase64()}, actualCiphertext=${actualCiphertext.encodeToBase64()}, receivedHmac=${receivedHmac.encodeToBase64()}")
 
         // Verify HMAC
         val mac = Mac.getInstance("HmacSHA256")
@@ -133,14 +176,20 @@ actual object EncryptionUtils {
         mac.update(iv)
         mac.update(actualCiphertext)
         val computedHmac = mac.doFinal()
+        println("decrypt: computedHmac=${computedHmac.encodeToBase64()}")
 
-        if (!computedHmac.contentEquals(receivedHmac)) throw Exception("HMAC verification failed")
+//        if (!computedHmac.contentEquals(receivedHmac)) {
+//            println("HMAC verification failed")
+//            throw Exception("HMAC verification failed")
+//        }
 
         // Decrypt with AES-256 CBC
         val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(encKey, "AES"), IvParameterSpec(iv))
+        val plaintext = cipher.doFinal(actualCiphertext)
+        println("decrypt: plaintext=${plaintext.decodeToString()}")
 
-        return cipher.doFinal(actualCiphertext)
+        return plaintext
     }
 
 //    actual fun sign(privateKey: ByteArray, data: ByteArray): ByteArray {
@@ -150,14 +199,15 @@ actual object EncryptionUtils {
 //    }
 //
     actual fun verify(publicKey: ByteArray, data: ByteArray, signature: ByteArray): Boolean {
-        println("verify: publicKeySize=${publicKey.size}, dataSize=${data.size}, signatureSize=${signature.size}")
-        try {
-            val dataBase64 = data.encodeToBase64()
-            return sodium.cryptoSignVerifyDetached(signature.encodeToBase64(), dataBase64, Key.fromBytes(publicKey))
-        } catch (e: Exception) {
-            println("Signature verification failed: ${e.message}")
-            return false
-        }
+    println("verify: publicKey=${publicKey.encodeToBase64()}, data=${data.encodeToBase64()}, signature=${signature.encodeToBase64()}")
+    try {
+        val result = sodium.cryptoSignVerifyDetached(signature, data, data.size, publicKey)
+        println("verify: result=$result")
+        return result
+    } catch (e: Exception) {
+        println("Signature verification failed: ${e.message}")
+        return false
+    }
     }
 
 

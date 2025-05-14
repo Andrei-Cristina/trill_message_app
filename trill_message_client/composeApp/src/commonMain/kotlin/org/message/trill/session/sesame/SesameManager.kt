@@ -28,6 +28,7 @@ private val sessionStorage: SessionStorage
     }
 
     suspend fun sendMessage(senderId: String, recipientUserId: String, plaintext: ByteArray) {
+        println("sendMessage on SesameManager: senderId=$senderId, recipientUserId=$recipientUserId, plaintext=${plaintext.decodeToString()}")
         cleanupStaleRecords()
         val recipientUserRecord = userRecords[recipientUserId] ?: createUserRecord(recipientUserId)
         if (recipientUserRecord.isStale || recipientUserRecord.devices.isEmpty()) {
@@ -53,6 +54,7 @@ private val sessionStorage: SessionStorage
             }
             println("Preparing message for device ${device.deviceId} of $recipientUserId")
             val content = prepareMessageContent(senderId, recipientUserId, device.deviceId, plaintext)
+
             val message = Message(
                 senderId = senderId,
                 senderDeviceId = sessionStorage.loadDeviceId(senderId),
@@ -62,6 +64,7 @@ private val sessionStorage: SessionStorage
                 timestamp = Clock.System.now().toString()
             )
             messages.add(message)
+            println("Created message: senderDeviceId=${message.senderDeviceId}, recipientDeviceId=${message.recipientDeviceId}, header.n=${content.header.n}, ciphertext size=${content.ciphertext.size}")
         }
 
         if (messages.isEmpty()) {
@@ -76,6 +79,7 @@ private val sessionStorage: SessionStorage
     }
 
     private suspend fun prepareMessageContent(senderId: String, recipientUserId: String, recipientDeviceId: String, plaintext: ByteArray): MessageContent {
+        println("prepareMessageContent on SesameManager: senderId=$senderId, recipientUserId=$recipientUserId, recipientDeviceId=$recipientDeviceId, plaintext=${plaintext.decodeToString()}")
         cleanupStaleRecords()
         val recipientUserRecord = userRecords[recipientUserId] ?: createUserRecord(recipientUserId)
         if (recipientUserRecord.isStale || recipientUserRecord.devices.isEmpty()) {
@@ -91,20 +95,208 @@ private val sessionStorage: SessionStorage
 
         val (session, isInitial) = deviceRecord.activeSession?.let { it to false } ?: (createNewSession(senderId, recipientUserId, recipientDeviceId) to true)
         println("Using session ${session.sessionId} (initial=$isInitial) for $recipientUserId/$recipientDeviceId")
+        println("Session ratchetState: dhs.public=${session.ratchetState.dhs.second.encodeToBase64()}, dhr=${session.ratchetState.dhr?.encodeToBase64() ?: "null"}, rk=${session.ratchetState.rk.encodeToBase64()}, cks=${session.ratchetState.cks?.encodeToBase64() ?: "null"}, ckr=${session.ratchetState.ckr?.encodeToBase64() ?: "null"}, ns=${session.ratchetState.ns}, nr=${session.ratchetState.nr}, pn=${session.ratchetState.pn}, ad=${session.ratchetState.ad.encodeToBase64()}, ek=${session.ratchetState.ek.encodeToBase64()}")
 
         val doubleRatchet = DoubleRatchet(session.ratchetState)
-        val (header, ciphertext) = if (isInitial) {
-            val identityKey = keyManager.getIdentityKey(senderId).publicKey
-            val (initialHeader, initialCiphertext) = doubleRatchet.encrypt(plaintext, session.ratchetState.ad)
-            val modifiedCiphertext = identityKey + initialCiphertext
-            initialHeader.copy(n = -1) to modifiedCiphertext
-        } else {
-            doubleRatchet.encrypt(plaintext, session.ratchetState.ad)
-        }
+        println("Encrypting message, ad=${session.ratchetState.ad.encodeToBase64()}")
+
+        val (header, ciphertext) = doubleRatchet.encrypt(plaintext, session.ratchetState.ad)
+        println("Encrypted message: header.dh=${header.dh.encodeToBase64()}, header.pn=${header.pn}, header.n=${header.n}, ciphertext size=${ciphertext.size}")
+
+        header.ek = session.ratchetState.ek
+
         return MessageContent(header, ciphertext)
     }
+//        val (session, isInitial) = deviceRecord.activeSession?.let { it to false } ?: (createNewSession(senderId, recipientUserId, recipientDeviceId) to true)
+//        println("Using session ${session.sessionId} (initial=$isInitial) for $recipientUserId/$recipientDeviceId")
+
+//        val doubleRatchet = DoubleRatchet(session.ratchetState)
+//        val (header, ciphertext) = if (isInitial) {
+//            val identityKey = keyManager.getIdentityKey(senderId).publicKey
+//            println("Encrypting initial message for $recipientUserId/$recipientDeviceId, identityKey=${identityKey.encodeToBase64()}, ad size=${session.ratchetState.ad?.size ?: 0}")
+//            val (initialHeader, initialCiphertext) = doubleRatchet.encrypt(plaintext, session.ratchetState.ad)
+//            println("Encrypted initial message, header.n=${initialHeader.n}, ciphertext size=${initialCiphertext.size}")
+//            val modifiedCiphertext = identityKey + initialCiphertext
+//            println("Appended identityKey, modifiedCiphertext size=${modifiedCiphertext.size}")
+//            initialHeader.copy(n = -1) to modifiedCiphertext
+//        } else {
+//            println("Encrypting non-initial message, ad size=${session.ratchetState.ad?.size ?: 0}")
+//            val (header, ciphertext) = doubleRatchet.encrypt(plaintext, session.ratchetState.ad)
+//            println("Encrypted non-initial message, header.n=${header.n}, ciphertext size=${ciphertext.size}")
+//            header to ciphertext
+//        }
+//        return MessageContent(header, ciphertext)
+
+
+
+
+//    suspend fun receiveMessage(message: Message): String {
+//        println("receiveMessage on SesameManager: from ${message.senderId}/${message.senderDeviceId} to ${message.recipientId}/${message.recipientDeviceId}, header.n=${message.content.header.n}, ciphertext size=${message.content.ciphertext.size}")
+//        val userRecord = userRecords[message.senderId] ?: createUserRecord(message.senderId)
+//        if (userRecord.isStale) {
+//            userRecord.isStale = false
+//            userRecord.staleTransitionTimestamp = null
+//            println("Marked user ${message.senderId} as non-stale")
+//        }
+//
+//        val deviceRecord = userRecord.devices[message.senderDeviceId] ?: createDeviceRecord(message.senderDeviceId, message.senderId)
+//        if (deviceRecord.isStale) {
+//            deviceRecord.isStale = false
+//            deviceRecord.staleTransitionTimestamp = null
+//            println("Marked device ${message.senderDeviceId} as non-stale")
+//        }
+//
+//        val content = message.content
+//        try {
+//            return if (content.header.n == -1) {
+//                println("Handling initial message (n=-1) from ${message.senderId}/${message.senderDeviceId}")
+//                val identityKeySize = 32
+//                if (content.ciphertext.size < identityKeySize) {
+//                    println("Invalid initial message ciphertext: size=${content.ciphertext.size}, expected at least $identityKeySize")
+//                    throw IllegalStateException("Invalid initial message ciphertext")
+//                }
+//                val senderIdentityKey = content.ciphertext.copyOfRange(0, identityKeySize)
+//                val actualCiphertext = content.ciphertext.copyOfRange(identityKeySize, content.ciphertext.size)
+//                println("Extracted senderIdentityKey (size=${senderIdentityKey.size}) and actualCiphertext (size=${actualCiphertext.size})")
+//
+//                val x3dh = X3DH(keyManager)
+//                val x3dhResult = try {
+//                    println("Calling X3DH.receive with recipientId=${message.recipientId}, senderIdentityKey=${senderIdentityKey.encodeToBase64()}, dh=${content.header.dh.encodeToBase64()}")
+//                    x3dh.receive(message.recipientId, senderIdentityKey, content.header.dh)
+//                } catch (e: Exception) {
+//                    println("X3DH.receive failed: ${e.message}")
+//                    throw Exception("Failed to initialize X3DH: ${e.message}")
+//                }
+//                println("X3DH.receive succeeded, sk=${x3dhResult.sk.encodeToBase64()}, ad size=${x3dhResult.ad.size}")
+//
+//                val signedPreKey = keyManager.getSignedPreKey(message.recipientId).preKey
+//                println("Retrieved signedPreKey for ${message.recipientId}")
+//                val ratchetState = try {
+//                    RatchetState.initAsReceiver(x3dhResult, signedPreKey)
+//                } catch (e: Exception) {
+//                    println("RatchetState.initAsReceiver failed: ${e.message}")
+//                    throw Exception("Failed to initialize ratchet state: ${e.message}")
+//                }
+//                println("Initialized ratchetState, ad size=${ratchetState.ad.size}")
+//
+//                val session = Session(UUID.randomUUID().toString(), ratchetState, isInitiating = false)
+//                val doubleRatchet = DoubleRatchet(ratchetState)
+//                val modifiedContent = MessageContent(content.header.copy(n = 0), actualCiphertext)
+//                println("Attempting to decrypt with header.n=${modifiedContent.header.n}, ciphertext size=${modifiedContent.ciphertext.size}")
+//                val plaintext = try {
+//                    doubleRatchet.decrypt(modifiedContent, session.ratchetState.ad)
+//                } catch (e: Exception) {
+//                    println("DoubleRatchet.decrypt failed: ${e.message}")
+//                    throw Exception("Failed to decrypt message: ${e.message}")
+//                }
+//
+//                deviceRecord.activeSession = session
+//                deviceRecord.inactiveSessions.add(0, session)
+//                if (deviceRecord.inactiveSessions.size > MAX_INACTIVE_SESSIONS) {
+//                    deviceRecord.inactiveSessions.removeLast()
+//                }
+//
+//                println("Saved new session ${session.sessionId} for ${message.senderId}/${message.senderDeviceId}")
+//
+//                try {
+//                    sessionStorage.saveUserRecords(userRecords)
+//                    println("Saved user records after decryption")
+//                } catch (e: Exception) {
+//                    println("Failed to save user records: ${e.message}")
+//                    throw Exception("Failed to save session: ${e.message}")
+//                }
+//
+//                val decryptedText = plaintext.decodeToString()
+//                println("Decrypted message: $decryptedText")
+//                decryptedText
+//            } else {
+//                println("Handling non-initial message (n=${content.header.n}) from ${message.senderId}/${message.senderDeviceId}")
+//                val session = findSessionForMessage(deviceRecord, content) ?: run {
+//                    println("No session found for message from ${message.senderId}, creating new session")
+//                    createNewSession(message.recipientId, message.senderId, message.senderDeviceId)
+//                }
+//                activateSession(deviceRecord, session)
+//
+//                val doubleRatchet = DoubleRatchet(session.ratchetState)
+//                println("Attempting to decrypt with session ${session.sessionId}, header.n=${content.header.n}, ciphertext size=${content.ciphertext.size}")
+//                val plaintext = try {
+//                    doubleRatchet.decrypt(content, session.ratchetState.ad)
+//                } catch (e: Exception) {
+//                    println("DoubleRatchet.decrypt failed for non-initial message: ${e.message}")
+//                    throw Exception("Failed to decrypt message: ${e.message}")
+//                }
+//
+//                println("Decrypted message for ${message.senderId}/${message.senderDeviceId} with session ${session.sessionId}")
+//
+//                try {
+//                    sessionStorage.saveUserRecords(userRecords)
+//                    println("Saved user records after decryption")
+//                } catch (e: Exception) {
+//                    println("Failed to save user records: ${e.message}")
+//                    throw Exception("Failed to save session: ${e.message}")
+//                }
+//
+//                val decryptedText = plaintext.decodeToString()
+//                println("Decrypted message: $decryptedText")
+//                decryptedText
+//            }
+//        } catch (e: Exception) {
+//            println("Failed to process message from ${message.senderId}/${message.senderDeviceId}: ${e.message}")
+//            throw Exception("Failed to receive message: ${e.message}")
+//        }
+//    }
+
+    // v2
+//    suspend fun receiveMessage(message: Message): String {
+//        println("receiveMessage on SesameManager: from ${message.senderId}/${message.senderDeviceId} to ${message.recipientId}/${message.recipientDeviceId}, header.n=${message.content.header.n}, ciphertext size=${message.content.ciphertext.size}")
+//        val userRecord = userRecords[message.senderId] ?: createUserRecord(message.senderId)
+//        if (userRecord.isStale) {
+//            userRecord.isStale = false
+//            userRecord.staleTransitionTimestamp = null
+//            println("Marked user ${message.senderId} as non-stale")
+//        }
+//
+//        val deviceRecord = userRecord.devices[message.senderDeviceId] ?: createDeviceRecord(message.senderDeviceId, message.senderId)
+//        if (deviceRecord.isStale) {
+//            deviceRecord.isStale = false
+//            deviceRecord.staleTransitionTimestamp = null
+//            println("Marked device ${message.senderDeviceId} as non-stale")
+//        }
+//
+//        val content = message.content
+//        try {
+//            val session = findSessionForMessage(deviceRecord, content) ?: run {
+//                println("No session found for message from ${message.senderId}/${message.senderDeviceId}, creating new session")
+//                createNewSession(message.recipientId, message.senderId, message.senderDeviceId)
+//            }
+//            println("Using session ${session.sessionId} for decryption")
+//            println("Session ratchetState: dhs.public=${session.ratchetState.dhs.second.encodeToBase64()}, dhr=${session.ratchetState.dhr?.encodeToBase64() ?: "null"}, rk=${session.ratchetState.rk.encodeToBase64()}, cks=${session.ratchetState.cks?.encodeToBase64() ?: "null"}, ckr=${session.ratchetState.ckr?.encodeToBase64() ?: "null"}, ns=${session.ratchetState.ns}, nr=${session.ratchetState.nr}, pn=${session.ratchetState.pn}, ad=${session.ratchetState.ad.encodeToBase64()}")
+//
+//            activateSession(deviceRecord, session)
+//            val doubleRatchet = DoubleRatchet(session.ratchetState)
+//
+//            println("Attempting to decrypt with header.dh=${content.header.dh.encodeToBase64()}, header.n=${content.header.n}, ad=${session.ratchetState.ad.encodeToBase64()}")
+//            val plaintext = try {
+//                doubleRatchet.decrypt(content, session.ratchetState.ad)
+//            } catch (e: Exception) {
+//                println("DoubleRatchet.decrypt failed: ${e.message}")
+//                throw Exception("Failed to decrypt message: ${e.message}")
+//            }
+//
+//            println("Decrypted plaintext: ${plaintext.decodeToString()}")
+//
+//            sessionStorage.saveUserRecords(userRecords)
+//            println("Saved user records after decryption")
+//
+//            return plaintext.decodeToString()
+//        } catch (e: Exception) {
+//            println("Failed to process message from ${message.senderId}/${message.senderDeviceId}: ${e.message}")
+//            throw Exception("Failed to receive message: ${e.message}")
+//        }
+//    }
 
     suspend fun receiveMessage(message: Message): String {
+        println("receiveMessage: from ${message.senderId}/${message.senderDeviceId} to ${message.recipientId}/${message.recipientDeviceId}, header.n=${message.content.header.n}, ciphertext size=${message.content.ciphertext.size}")
         val userRecord = userRecords[message.senderId] ?: createUserRecord(message.senderId)
         if (userRecord.isStale) {
             userRecord.isStale = false
@@ -120,52 +312,79 @@ private val sessionStorage: SessionStorage
         }
 
         val content = message.content
-        return if (content.header.n == -1) {
-            val identityKeySize = 32
-            if (content.ciphertext.size < identityKeySize) {
-                throw IllegalStateException("Invalid initial message ciphertext")
-            }
-            val senderIdentityKey = content.ciphertext.copyOfRange(0, identityKeySize)
-            val actualCiphertext = content.ciphertext.copyOfRange(identityKeySize, content.ciphertext.size)
-
-            val x3dh = X3DH(keyManager)
-            val x3dhResult = x3dh.receive(message.senderId, senderIdentityKey, content.header.dh)
-            val signedPreKey = keyManager.getSignedPreKey(message.senderId).preKey
-            val ratchetState = RatchetState.initAsReceiver(x3dhResult, signedPreKey)
-            val session = Session(UUID.randomUUID().toString(), ratchetState, isInitiating = false)
-            val doubleRatchet = DoubleRatchet(ratchetState)
-            val modifiedContent = MessageContent(content.header.copy(n = 0), actualCiphertext)
-            val plaintext = doubleRatchet.decrypt(modifiedContent, session.ratchetState.ad)
-
-            deviceRecord.activeSession = session
-            deviceRecord.inactiveSessions.add(0, session)
-            if (deviceRecord.inactiveSessions.size > MAX_INACTIVE_SESSIONS) {
-                deviceRecord.inactiveSessions.removeLast()
-            }
-
-            println("Saved new session ${session.sessionId} for ${message.senderId}/${message.senderDeviceId}")
-
-            sessionStorage.saveUserRecords(userRecords)
-            plaintext.decodeToString()
-        } else {
+        try {
             val session = findSessionForMessage(deviceRecord, content) ?: run {
-                println("No session found for message from ${message.senderId}, creating new session")
-                createNewSession(message.senderId, message.senderId, message.senderDeviceId)
+                println("No session found for message from ${message.senderId}/${message.senderDeviceId}, initializing receiving session")
+                val prekeyBundle = networkManager.fetchPrekeyBundle(message.senderId, message.senderDeviceId)
+                println("Fetched prekeyBundle: identityKey=${prekeyBundle.identityKey}, signedPreKey=${prekeyBundle.signedPreKey}, signature=${prekeyBundle.signature}")
+
+                val identityKey = Base64.getDecoder().decode(prekeyBundle.identityKey).also {
+                    if (it.size != 32) throw IllegalArgumentException("Identity key must be 32 bytes, got ${it.size}")
+                    println("Decoded identityKey: ${it.encodeToBase64()}")
+                }
+                val signedPreKey = Base64.getDecoder().decode(prekeyBundle.signedPreKey).also {
+                    if (it.size != 32) throw IllegalArgumentException("Signed prekey must be 32 bytes, got ${it.size}")
+                    println("Decoded signedPreKey: ${it.encodeToBase64()}")
+                }
+                val signature = Base64.getDecoder().decode(prekeyBundle.signature).also {
+                    if (it.size != 64) throw IllegalArgumentException("Signature size is ${it.size} bytes, expected 64 bytes")
+                    println("Decoded signature: ${it.encodeToBase64()}")
+                }
+
+//                if (!EncryptionUtils.verify(identityKey, signedPreKey, signature)) {
+//                    println("Signature verification failed for sender ${message.senderId}")
+//                    throw Exception("Signature verification failed")
+//                }
+
+                val x3dh = X3DH(keyManager)
+
+                val x3dhResult = x3dh.receive(
+                    userId = message.recipientId,
+                    senderIdentityKey = identityKey,
+                    senderEphemeralKey = content.header.ek
+                )
+                println("X3DH received: sk=${x3dhResult.sk.encodeToBase64()}, ad=${x3dhResult.ad.encodeToBase64()}, ek=${x3dhResult.ek.encodeToBase64()}")
+
+                val ratchetState = RatchetState.initAsReceiver(x3dhResult, keyManager.getSignedPreKey(message.recipientId).preKey)
+                println("RatchetState initialized: dhs.public=${ratchetState.dhs.second.encodeToBase64()}, dhr=${ratchetState.dhr?.encodeToBase64() ?: "null"}, rk=${ratchetState.rk.encodeToBase64()}, cks=${ratchetState.cks?.encodeToBase64() ?: "null"}, ckr=${ratchetState.ckr?.encodeToBase64() ?: "null"}, ad=${ratchetState.ad.encodeToBase64()}, ek=${ratchetState.ek.encodeToBase64()}")
+
+                val session = Session(UUID.randomUUID().toString(), ratchetState, isInitiating = false)
+                deviceRecord.activeSession = session
+                deviceRecord.inactiveSessions.add(0, session)
+                if (deviceRecord.inactiveSessions.size > MAX_INACTIVE_SESSIONS) {
+                    deviceRecord.inactiveSessions.removeLast()
+                }
+                sessionStorage.saveUserRecords(userRecords)
+                println("Saved new receiving session ${session.sessionId} for ${message.senderId}/${message.senderDeviceId}")
+                session
             }
+
+            println("Using session ${session.sessionId} for decryption")
+            println("Session ratchetState: dhs.public=${session.ratchetState.dhs.second.encodeToBase64()}, dhr=${session.ratchetState.dhr?.encodeToBase64() ?: "null"}, rk=${session.ratchetState.rk.encodeToBase64()}, cks=${session.ratchetState.cks?.encodeToBase64() ?: "null"}, ckr=${session.ratchetState.ckr?.encodeToBase64() ?: "null"}, ns=${session.ratchetState.ns}, nr=${session.ratchetState.nr}, pn=${session.ratchetState.pn}, ad=${session.ratchetState.ad.encodeToBase64()}, ek=${session.ratchetState.ek.encodeToBase64()}")
+
             activateSession(deviceRecord, session)
-
             val doubleRatchet = DoubleRatchet(session.ratchetState)
-            val plaintext = doubleRatchet.decrypt(content, session.ratchetState.ad)
+            println("Attempting to decrypt with header.dh=${content.header.dh.encodeToBase64()}, header.n=${content.header.n}, ad=${session.ratchetState.ad.encodeToBase64()}")
+            val plaintext = try {
+                doubleRatchet.decrypt(content, session.ratchetState.ad)
+            } catch (e: Exception) {
+                println("DoubleRatchet.decrypt failed: ${e.message}")
+                throw Exception("Failed to decrypt message: ${e.message}")
+            }
 
-            println("Decrypted message for ${message.senderId}/${message.senderDeviceId} with session ${session.sessionId}")
-
+            println("Decrypted plaintext: ${plaintext.decodeToString()}")
             sessionStorage.saveUserRecords(userRecords)
-            plaintext.decodeToString()
+            println("Saved user records after decryption")
+            return plaintext.decodeToString()
+        } catch (e: Exception) {
+            println("Failed to process message from ${message.senderId}/${message.senderDeviceId}: ${e.message}")
+            throw Exception("Failed to receive message: ${e.message}")
         }
     }
 
     private fun cleanupStaleRecords() {
         val currentTime = System.currentTimeMillis()
+        println("cleanupStaleRecords on SesameManager: currentTime=$currentTime")
         userRecords.values.removeIf { user ->
             if (user.isStale && user.staleTransitionTimestamp != null && currentTime - user.staleTransitionTimestamp!! > MAX_LATENCY) {
                 println("Cleaning up stale user records for ${user.userId} at $currentTime")
@@ -185,17 +404,19 @@ private val sessionStorage: SessionStorage
     }
 
     private suspend fun createNewSession(userId: String, recipientUserId: String, deviceId: String): Session {
-        println("Creating new session for $recipientUserId with device ID $deviceId")
+        println("createNewSession: userId=$userId, recipientUserId=$recipientUserId, deviceId=$deviceId")
         val prekeyBundle = try {
             networkManager.fetchPrekeyBundle(recipientUserId, deviceId)
         } catch (e: Exception) {
             println("Failed to fetch prekey bundle for $recipientUserId/$deviceId: ${e.message}")
             throw Exception("Cannot create session: Prekey bundle not available for $recipientUserId/$deviceId")
         }
+        println("Fetched prekeyBundle: identityKey=${prekeyBundle.identityKey}, signedPreKey=${prekeyBundle.signedPreKey}, oneTimePreKey=${prekeyBundle.oneTimePreKey}, signature=${prekeyBundle.signature}")
 
         val identityKey = try {
             Base64.getDecoder().decode(prekeyBundle.identityKey).also {
                 if (it.size != 32) throw IllegalArgumentException("Identity key must be 32 bytes, got ${it.size}")
+                println("Decoded identityKey: ${it.encodeToBase64()}, size=${it.size}")
             }
         } catch (e: Exception) {
             println("Failed to decode identityKey: ${e.message}")
@@ -205,6 +426,7 @@ private val sessionStorage: SessionStorage
         val signedPreKey = try {
             Base64.getDecoder().decode(prekeyBundle.signedPreKey).also {
                 if (it.size != 32) throw IllegalArgumentException("Signed prekey must be 32 bytes, got ${it.size}")
+                println("Decoded signedPreKey: ${it.encodeToBase64()}, size=${it.size}")
             }
         } catch (e: Exception) {
             println("Failed to decode signedPreKey: ${e.message}")
@@ -215,6 +437,7 @@ private val sessionStorage: SessionStorage
             try {
                 Base64.getDecoder().decode(it).also {
                     if (it.size != 32) throw IllegalArgumentException("One-time prekey must be 32 bytes, got ${it.size}")
+                    println("Decoded oneTimePreKey: ${it.encodeToBase64()}, size=${it.size}")
                 }
             } catch (e: Exception) {
                 println("Failed to decode oneTimePreKey: ${e.message}")
@@ -222,14 +445,11 @@ private val sessionStorage: SessionStorage
             }
         }
 
-//        sessionStorage.getSignedPreKey(userId)?.let { key ->
-//            println("Users key: ${key.signature.encodeToBase64()}")
-//        }
-
         val signature = prekeyBundle.signature.let { it ->
             try {
                 Base64.getDecoder().decode(it).also {
-                    if (it.size > 64 ) throw IllegalArgumentException("Signature size is ${it.size} bytes, expected 64 bytes")
+                    if (it.size != 64) throw IllegalArgumentException("Signature size is ${it.size} bytes, expected 64 bytes")
+                    println("Decoded signature: ${it.encodeToBase64()}, size=${it.size}")
                 }
             } catch (e: Exception) {
                 println("Failed to decode signature: ${e.message}")
@@ -243,7 +463,7 @@ private val sessionStorage: SessionStorage
         }
 
         if (!deviceRecord.publicKey.contentEquals(identityKey)) {
-            println("Updating device $deviceId public key for $recipientUserId")
+            println("Updating device $deviceId public key for $recipientUserId: new=${identityKey.encodeToBase64()}")
             deviceRecord.publicKey = identityKey
             sessionStorage.saveUserRecords(userRecords)
         }
@@ -255,6 +475,7 @@ private val sessionStorage: SessionStorage
             println("X3DH initiation failed for $recipientUserId/$deviceId: ${e.message}")
             throw Exception("Failed to initiate X3DH: ${e.message}")
         }
+        println("X3DH initiated: sk=${x3dhResult.sk.encodeToBase64()}, ad=${x3dhResult.ad.encodeToBase64()}, ek=${x3dhResult.ek.encodeToBase64()}")
 
         val ratchetState = try {
             RatchetState.initAsSender(x3dhResult, signedPreKey)
@@ -262,37 +483,30 @@ private val sessionStorage: SessionStorage
             println("Failed to initialize ratchet state for $recipientUserId/$deviceId: ${e.message}")
             throw Exception("Failed to initialize ratchet state: ${e.message}")
         }
+        println("RatchetState initialized: dhs.public=${ratchetState.dhs.second.encodeToBase64()}, dhr=${ratchetState.dhr?.encodeToBase64() ?: "null"}, rk=${ratchetState.rk.encodeToBase64()}, cks=${ratchetState.cks?.encodeToBase64() ?: "null"}, ckr=${ratchetState.ckr?.encodeToBase64() ?: "null"}, ad=${ratchetState.ad.encodeToBase64()}, ek = ${ratchetState.ek.encodeToBase64()}")
 
         val session = Session(UUID.randomUUID().toString(), ratchetState, isInitiating = true)
-        val newDeviceRecord = userRecords[recipientUserId]?.devices?.get(deviceId) ?: run {
-            println("Device $deviceId not found for $recipientUserId, creating new device record")
-            createDeviceRecord(deviceId, recipientUserId)
+        deviceRecord.activeSession = session
+        deviceRecord.inactiveSessions.add(0, session)
+
+        if (deviceRecord.inactiveSessions.size > MAX_INACTIVE_SESSIONS) {
+            deviceRecord.inactiveSessions.removeLast()
         }
 
-        newDeviceRecord.activeSession = session
-        newDeviceRecord.inactiveSessions.add(0, session)
-
-        if (newDeviceRecord.inactiveSessions.size > MAX_INACTIVE_SESSIONS) {
-            newDeviceRecord.inactiveSessions.removeLast()
-        }
-
-        try {
-            sessionStorage.saveUserRecords(userRecords)
-            println("Saved new session ${session.sessionId} for $recipientUserId/$deviceId")
-        } catch (e: Exception) {
-            println("Failed to save session for $recipientUserId/$deviceId: ${e.message}")
-            throw Exception("Failed to save session: ${e.message}")
-        }
-
+        sessionStorage.saveUserRecords(userRecords)
+        println("Saved new session ${session.sessionId} for $recipientUserId/$deviceId")
         return session
     }
 
     private fun findSessionForMessage(deviceRecord: DeviceRecord, content: MessageContent): Session? {
-        println("Finding session for message from device ${deviceRecord.deviceId}")
+        println("findSessionForMessage: deviceId=${deviceRecord.deviceId}, header.dh=${content.header.dh.encodeToBase64()}")
         if (deviceRecord.activeSession?.ratchetState?.dhr?.contentEquals(content.header.dh) == true) {
+            println("Found active session for device ${deviceRecord.deviceId}")
             return deviceRecord.activeSession
         }
-        return deviceRecord.inactiveSessions.find { it.ratchetState.dhr?.contentEquals(content.header.dh) == true }
+        val session = deviceRecord.inactiveSessions.find { it.ratchetState.dhr?.contentEquals(content.header.dh) == true }
+        println("Found session in inactive sessions: ${session?.sessionId ?: "none"}")
+        return session
     }
 
     private fun activateSession(deviceRecord: DeviceRecord, session: Session) {
@@ -308,7 +522,7 @@ private val sessionStorage: SessionStorage
     }
 
     private fun updateUserRecord(userId: String, devices: Map<String, ByteArray>) {
-        println("Updating user record for $userId with ${devices.size} devices")
+        println("updateUserRecord: userId=$userId, devices=${devices.keys}")
         val userRecord = userRecords.getOrPut(userId) { UserRecord(userId) }
         userRecord.isStale = false
         userRecord.staleTransitionTimestamp = null
@@ -334,17 +548,12 @@ private val sessionStorage: SessionStorage
             deviceRecord.staleTransitionTimestamp = System.currentTimeMillis()
             println("Marked device $deviceId as stale for $userId")
         }
-        try {
-            sessionStorage.saveUserRecords(userRecords)
-            println("Saved updated user record for $userId")
-        } catch (e: Exception) {
-            println("Failed to save user record for $userId: ${e.message}")
-            throw Exception("Failed to save user record for $userId: ${e.message}")
-        }
+        sessionStorage.saveUserRecords(userRecords)
+        println("Saved updated user record for $userId")
     }
 
     private suspend fun handleNetworkResponse(senderId: String, response: NetworkResponse, recipientUserId: String, plaintext: ByteArray) {
-        println("Handling network response for $recipientUserId: $response")
+        println("handleNetworkResponse: senderId=$senderId, recipientUserId=$recipientUserId, response=$response")
         when (response) {
             is NetworkResponse.Success -> {
                 println("Message sent successfully to $recipientUserId")
@@ -376,30 +585,20 @@ private val sessionStorage: SessionStorage
     }
 
     private fun createUserRecord(userId: String): UserRecord {
-        println("Creating user record for $userId")
+        println("createUserRecord: userId=$userId")
         val userRecord = UserRecord(userId)
         userRecords[userId] = userRecord
-        try {
-            sessionStorage.saveUserRecords(userRecords)
-            println("Saved new user record for $userId")
-        } catch (e: Exception) {
-            println("Failed to save user record for $userId: ${e.message}")
-            throw Exception("Failed to save user record: ${e.message}")
-        }
+        sessionStorage.saveUserRecords(userRecords)
+        println("Saved new user record for $userId")
         return userRecord
     }
 
     private fun createDeviceRecord(deviceId: String, userId: String): DeviceRecord {
-        println("Creating device record for $userId with device ID $deviceId")
+        println("createDeviceRecord: userId=$userId, deviceId=$deviceId")
         val deviceRecord = DeviceRecord(deviceId, byteArrayOf(), null)
         userRecords[userId]!!.devices[deviceId] = deviceRecord
-        try {
-            sessionStorage.saveUserRecords(userRecords)
-            println("Saved new device record $deviceId for $userId")
-        } catch (e: Exception) {
-            println("Failed to save device record $deviceId for $userId: ${e.message}")
-            throw Exception("Failed to save device record: ${e.message}")
-        }
+        sessionStorage.saveUserRecords(userRecords)
+        println("Saved new device record $deviceId for $userId")
         return deviceRecord
     }
 

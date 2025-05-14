@@ -83,7 +83,7 @@ fun Route.messageRoutes() {
         get("/{userId}/{deviceId}") {
             val userId = call.parameters["userId"]!!
             val deviceId = call.parameters["deviceId"]!!
-            //call.application.environment.log.info("Fetching messages for user: {} and device: {}", userId, deviceId)
+            call.application.environment.log.info("Fetching messages for user: {} and device: {}", userId, deviceId)
 
             if (!userRepository.getByEmail(userId).isSuccess) {
                 call.application.environment.log.warn("User not found: {}", userId)
@@ -108,6 +108,11 @@ fun Route.messageRoutes() {
                     call.respond(HttpStatusCode.InternalServerError, "Error fetching messages: $e")
                 }
             )
+        }
+
+        get {
+            call.application.environment.log.warn("Unmatched GET request to /messages: path={}", call.request.path())
+            call.respond(HttpStatusCode.BadRequest, "Invalid endpoint. Use /messages/{userId}/{deviceId}")
         }
     }
 }

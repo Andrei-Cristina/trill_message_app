@@ -7,6 +7,7 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.ObjectInputStream
 import java.io.ObjectOutputStream
+import java.util.*
 
 /**
  * Data class representing the state of the Double Ratchet algorithm.
@@ -63,6 +64,11 @@ data class RatchetState(
     val ad: ByteArray,
 
     /**
+     * Ephemeral key (ek) used for the current session.
+     */
+    var ek: ByteArray,
+
+    /**
      * Skipped message keys for handling out-of-order messages.
      * Maps message identifiers to the corresponding message keys.
      */
@@ -75,28 +81,62 @@ data class RatchetState(
         const val MAX_SKIP = 1000
 
         fun initAsSender(result: X3DHResult, receiverPublicKey: ByteArray):RatchetState {
+            println("RatchetState.initAsSender: sk size=${result.sk.size}, ad size=${result.ad.size}, receiverPublicKey=${receiverPublicKey.encodeToBase64()}")
+
             val dhs = EncryptionUtils.generateKeyPair()
-            val dh_out = EncryptionUtils.dh(dhs.first, receiverPublicKey)
-            val hkdf_result = EncryptionUtils.hkdf(salt = result.sk, ikm=dh_out, info = "TRILL".toByteArray(), length = 64)
+            println("Generated DH pair: public=${dhs.second.encodeToBase64()}, private size=${dhs.first.size}")
+
+            val dhOut = EncryptionUtils.dh(result.ekp, receiverPublicKey)
+            println("DH output: size=${dhOut.size}")
+
+            val hkdfResult = EncryptionUtils.hkdf(
+                salt = result.sk,
+                ikm = dhOut,
+                info = "TRILL_RATCHET".toByteArray(),
+                length = 64
+            )
+            println("HKDF output: size=${hkdfResult.size}")
 
             return RatchetState(
-                dhs = dhs,
+                dhs = EncryptionUtils.generateKeyPair(),
                 dhr = receiverPublicKey,
-                rk = hkdf_result.copyOfRange(0, 32),
-                cks = hkdf_result.copyOfRange(32, 64),
+                rk = hkdfResult.copyOfRange(0, 32),
+                cks = hkdfResult.copyOfRange(32, 64),
                 ckr = null,
-                ad = result.ad
-            )
+                ad = result.ad,
+                ek = result.ek,
+            ).also {
+                println("Sender state initialized: rk size=${it.rk.size}, cks size=${it.cks?.size ?: 0}, ad=${it.ad.encodeToBase64()}")
+            }
         }
 
-        fun initAsReceiver(result: X3DHResult, receiverKeyPair: PreKey): RatchetState = RatchetState(
-            dhs = receiverKeyPair.privateKey to receiverKeyPair.publicKey,
-            dhr = null,
-            rk = result.sk,
-            cks = null,
-            ckr = null,
-            ad = result.ad
-        )
+        fun initAsReceiver(result: X3DHResult, receiverKeyPair: PreKey): RatchetState {
+            println("RatchetState.initAsReceiver: sk size=${result.sk.size}, ad size=${result.ad.size}, receiverPublicKey=${receiverKeyPair.publicKey.encodeToBase64()}")
+            val dhOut = EncryptionUtils.dh(receiverKeyPair.privateKey, result.ek)
+
+            val hkdfResult = EncryptionUtils.hkdf(
+                salt = result.sk,
+                ikm = dhOut,
+                info = "TRILL_RATCHET".toByteArray(),
+                length = 64
+            )
+            println("HKDF output: size=${hkdfResult.size}")
+
+            return RatchetState(
+                dhs = receiverKeyPair.privateKey to receiverKeyPair.publicKey,
+                dhr = result.ek,
+                rk = hkdfResult.copyOfRange(0, 32),
+                cks = null,
+                ckr = hkdfResult.copyOfRange(32, 64),
+                ad = result.ad,
+                ek = result.ek,
+            ).also {
+                println("Receiver state initialized: rk size=${it.rk.size}, ckr size=${it.ckr?.size ?: 0}, ad=${it.ad.encodeToBase64()}")
+            }
+        }
+
+        private fun ByteArray.encodeToBase64(): String = Base64.getEncoder().encodeToString(this)
+
 
         fun fromByteArray(data: ByteArray): RatchetState {
             val byteStream = ByteArrayInputStream(data)
@@ -111,6 +151,7 @@ data class RatchetState(
                 val nr = ois.readInt()
                 val pn = ois.readInt()
                 val ad = ois.readObject() as ByteArray
+                val ek = ois.readObject() as ByteArray
                 val skipped = ois.readObject() as MutableMap<String, ByteArray>
 
                 return RatchetState(
@@ -123,6 +164,7 @@ data class RatchetState(
                     nr = nr,
                     pn = pn,
                     ad = ad,
+                    ek = ek,
                     skipped = skipped
                 )
             }
@@ -142,6 +184,7 @@ data class RatchetState(
             oos.writeInt(nr)
             oos.writeInt(pn)
             oos.writeObject(ad)
+            oos.writeObject(ek)
             oos.writeObject(skipped)
         }
         return byteStream.toByteArray()
@@ -194,4 +237,5 @@ data class RatchetState(
 
         return result
     }
+
 }
