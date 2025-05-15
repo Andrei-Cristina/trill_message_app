@@ -498,16 +498,27 @@ private val sessionStorage: SessionStorage
         return session
     }
 
+//    private fun findSessionForMessage(deviceRecord: DeviceRecord, content: MessageContent): Session? {
+//        println("findSessionForMessage: deviceId=${deviceRecord.deviceId}, header.dh=${content.header.dh.encodeToBase64()}")
+//        if (deviceRecord.activeSession?.ratchetState?.dhr?.contentEquals(content.header.dh) == true) {
+//            println("Found active session for device ${deviceRecord.deviceId}")
+//            return deviceRecord.activeSession
+//        }
+//        val session = deviceRecord.inactiveSessions.find { it.ratchetState.dhr?.contentEquals(content.header.dh) == true }
+//        println("Found session in inactive sessions: ${session?.sessionId ?: "none"}")
+//        return session
+//    }
+
     private fun findSessionForMessage(deviceRecord: DeviceRecord, content: MessageContent): Session? {
-        println("findSessionForMessage: deviceId=${deviceRecord.deviceId}, header.dh=${content.header.dh.encodeToBase64()}")
-        if (deviceRecord.activeSession?.ratchetState?.dhr?.contentEquals(content.header.dh) == true) {
+        println("findSessionForMessage: deviceId=${deviceRecord.deviceId}")
+        if (deviceRecord.activeSession != null) {
             println("Found active session for device ${deviceRecord.deviceId}")
             return deviceRecord.activeSession
         }
-        val session = deviceRecord.inactiveSessions.find { it.ratchetState.dhr?.contentEquals(content.header.dh) == true }
-        println("Found session in inactive sessions: ${session?.sessionId ?: "none"}")
-        return session
+        println("No active session found for device ${deviceRecord.deviceId}")
+        return null
     }
+
 
     private fun activateSession(deviceRecord: DeviceRecord, session: Session) {
         if (deviceRecord.activeSession != session) {
