@@ -10,14 +10,16 @@ class DoubleRatchet(
     private val state: RatchetState
 ) {
     fun encrypt(plaintext: ByteArray, ad: ByteArray): Pair<Header, ByteArray> {
-        println("DoubleRatchet.encrypt: plaintext=${plaintext.decodeToString()}, ad=${ad.encodeToBase64()}, cks=${state.cks?.encodeToBase64() ?: "null"}, ns=${state.ns}")
-        if (state.ns == 0 && state.dhr != null) {
-            println("DoubleRatchet.encrypt: Performing sender DH ratchet step for first message")
+        println("DoubleRatchet.encrypt: plaintext=${plaintext.decodeToString()}, ad=${ad.encodeToBase64()}, cks=${state.cks?.encodeToBase64() ?: "null"}, ns=${state.ns}, nr=${state.nr}, dhr=${state.dhr?.encodeToBase64() ?: "null"}")
+
+        if (state.dhr != null && !state.dhr.contentEquals(state.lastDhr) && state.ns == 0) {
+            println("DoubleRatchet.encrypt: Performing DH ratchet step due to new dhr")
             senderDhRatchetStep()
+            state.lastDhr = state.dhr
             println("DoubleRatchet.encrypt: After DH ratchet - dhs.public=${state.dhs.second.encodeToBase64()}, cks=${state.cks?.encodeToBase64() ?: "null"}")
         }
 
-        val (ck, mk) = kdfCk(state.cks!!)
+        val (ck, mk) = kdfCk(state.cks ?: throw IllegalStateException("Sending chain key is null"))
         println("DoubleRatchet.encrypt: new chainKey=${ck.encodeToBase64()}, messageKey=${mk.encodeToBase64()}")
         state.cks = ck
 
@@ -33,6 +35,7 @@ class DoubleRatchet(
 
         return header to ciphertext
     }
+
 
     fun decrypt(message: MessageContent, ad: ByteArray): ByteArray {
         println("DoubleRatchet.decrypt: header.dh=${message.header.dh.encodeToBase64()}, header.n=${message.header.n}, header.pn=${message.header.pn}, ciphertext=${message.ciphertext.encodeToBase64()}, ad=${ad.encodeToBase64()}, ckr=${state.ckr?.encodeToBase64() ?: "null"}, dhr=${state.dhr?.encodeToBase64() ?: "null"}, ns=${state.ns}, nr=${state.nr}, pn=${state.pn}")
@@ -124,18 +127,24 @@ class DoubleRatchet(
         state.ns = 0
         state.nr = 0
         state.dhr = header.dh
+        println("dhRatchetStep: Updated state.dhr to ${state.dhr?.encodeToBase64() ?: "null"}")
 
-        val rk = kdfRk(state.rk, EncryptionUtils.dh(state.dhs.first, state.dhr!!))
-        state.rk = rk.first
-        state.ckr = rk.second
-        println("dhRatchetStep: new rk=${state.rk.encodeToBase64()}, ckr=${state.ckr?.encodeToBase64() ?: "null"}")
+        val dhRecvOutput = EncryptionUtils.dh(state.dhs.first, state.dhr!!)
+        val (newRkAfterRecv, newCkr) = kdfRk(state.rk, dhRecvOutput)
+        state.rk = newRkAfterRecv
+        state.ckr = newCkr
+        println("dhRatchetStep: After CKr derivation - new rk=${state.rk.encodeToBase64()}, ckr=${state.ckr?.encodeToBase64() ?: "null"}")
 
-        val newDhs = EncryptionUtils.generateKeyPair()
-        val rk2 = kdfRk(state.rk, EncryptionUtils.dh(newDhs.first, state.dhr!!))
-        state.rk = rk2.first
-        state.cks = rk2.second
-        state.dhs = newDhs
-        println("dhRatchetStep: new dhs.public=${state.dhs.second.encodeToBase64()}, rk=${state.rk.encodeToBase64()}, cks=${state.cks?.encodeToBase64() ?: "null"}")
+        val newLocalDhs = EncryptionUtils.generateKeyPair()
+        val dhSendOutput = EncryptionUtils.dh(newLocalDhs.first, state.dhr!!)
+        val (newRkAfterSendSetup, newCks) = kdfRk(state.rk, dhSendOutput)
+        state.rk = newRkAfterSendSetup
+        state.cks = newCks
+        state.dhs = newLocalDhs
+        println("dhRatchetStep: After CKs derivation - new dhs.public=${state.dhs.second.encodeToBase64()}, rk=${state.rk.encodeToBase64()}, cks=${state.cks?.encodeToBase64() ?: "null"}")
+
+        state.lastDhr = state.dhr
+        println("dhRatchetStep: Updated lastDhr to ${state.lastDhr?.encodeToBase64() ?: "null"}")
     }
 
     private fun ByteArray.encodeToBase64(): String = Base64.getEncoder().encodeToString(this)

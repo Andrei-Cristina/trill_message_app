@@ -106,7 +106,7 @@ class X3DH(private val keyManager: KeyManager) {
         val ad = senderIdentityKey + identityKey.publicKey
         println("Associated data (ad): ${ad.encodeToBase64()}, size=${ad.size}")
 
-        return X3DHResult(sk, ad, senderEphemeralKey)
+        return X3DHResult(sk, ad, senderEphemeralKey, ByteArray(32))
     }
 
     private fun verifySignature(pubKey: ByteArray, data: ByteArray, signature: ByteArray): Boolean =
