@@ -35,13 +35,17 @@ class MessageRepository : KoinComponent {
 
     suspend fun getByRecipient(userId: String, deviceId: String): Result<List<Message>> = withContext(Dispatchers.IO) {
         kotlin.runCatching {
-            collection.find(
-                Filters.and(
+            val filter = Filters.and(
                 Filters.eq("recipientId", userId),
                 Filters.eq("recipientDeviceId", deviceId)
-            )).map { doc ->
+            )
+
+            val messages = collection.find(filter).map { doc ->
                 json.decodeFromString(Message.serializer(), doc.toJson())
             }.toList()
+
+            collection.deleteMany(filter)
+            messages
         }
     }
 }
