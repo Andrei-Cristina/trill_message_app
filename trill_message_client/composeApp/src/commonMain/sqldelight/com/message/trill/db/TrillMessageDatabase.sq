@@ -64,7 +64,45 @@ CREATE TABLE IF NOT EXISTS client_info (
     PRIMARY KEY (user_email)
 );
 
+--Store message data
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    sender_email TEXT NOT NULL,
+    receiver_email TEXT NOT NULL, -- The other participant in the conversation
+    content TEXT NOT NULL,
+    timestamp INTEGER NOT NULL, -- Store as Epoch Milliseconds
+    is_sent_by_local_user INTEGER NOT NULL -- 0 for false, 1 for true
+);
+
+-- Index for faster conversation loading
+CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(sender_email, receiver_email, timestamp);
+CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
+
+
 -- Queries
+insertMessage:
+INSERT INTO messages (sender_email, receiver_email, content, timestamp, is_sent_by_local_user)
+VALUES (?, ?, ?, ?, ?);
+
+getMessagesForConversation:
+SELECT id, sender_email, receiver_email, content, timestamp, is_sent_by_local_user
+FROM messages
+WHERE (sender_email = :user1_email AND receiver_email = :user2_email)
+   OR (sender_email = :user2_email AND receiver_email = :user1_email)
+ORDER BY timestamp ASC;
+
+getRecentConversations:
+SELECT DISTINCT
+    CASE
+        WHEN sender_email = :current_user_email THEN receiver_email
+        ELSE sender_email
+    END AS contact_email,
+    MAX(timestamp) AS last_timestamp
+FROM messages
+WHERE sender_email = :current_user_email OR receiver_email = :current_user_email
+GROUP BY contact_email
+ORDER BY last_timestamp DESC;
+
 selectClientInfo:
 SELECT user_email, user_nickname, device_id FROM client_info WHERE user_email = ?;
 

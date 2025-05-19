@@ -13,35 +13,43 @@ import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.lazy.LazyListState
 
 @Composable
-fun ChatArea(messages: List<ConversationMessage>, modifier: Modifier = Modifier) {
-    LazyColumn(modifier = modifier) {
-        items(messages) { message ->
+fun ChatArea(
+    messages: List<ConversationMessage>,
+    listState: LazyListState,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier.padding(horizontal = 8.dp),
+        state = listState,
+        reverseLayout = false
+    ) {
+        items(messages, key = { it.id }) { message ->
             val alignment = if (message.isSent) Alignment.End else Alignment.Start
             Column(
-                modifier = Modifier.fillMaxWidth().padding(8.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 horizontalAlignment = alignment
             ) {
                 Box(
                     modifier = Modifier
                         .background(
-                            if (message.isSent) MaterialTheme.colors.primary else MaterialTheme.colors.surface,
+                            color = if (message.isSent) MaterialTheme.colors.primary else MaterialTheme.colors.surface,
                             shape = RoundedCornerShape(8.dp)
                         )
                         .padding(8.dp)
                 ) {
                     Text(
                         text = message.content,
-                        color = if (message.isSent) Color.White else Color.Black
+                        color = if (message.isSent) MaterialTheme.colors.onPrimary else MaterialTheme.colors.onSurface
                     )
                 }
                 Text(
                     text = message.timestamp,
                     style = MaterialTheme.typography.caption,
-                    modifier = Modifier.padding(top = 2.dp)
+                    modifier = Modifier.padding(top = 2.dp, start = 4.dp, end = 4.dp)
                 )
             }
         }

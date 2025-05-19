@@ -14,7 +14,7 @@ import androidx.compose.ui.unit.dp
 fun ConversationItem(contact: String, isSelected: Boolean, onClick: () -> Unit) {
     Button(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().padding(4.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
         colors = if (isSelected) ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.primaryVariant)
         else ButtonDefaults.buttonColors()
     ) {

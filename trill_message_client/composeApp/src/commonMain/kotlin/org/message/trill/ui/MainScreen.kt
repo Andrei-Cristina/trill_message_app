@@ -1,282 +1,280 @@
 package org.message.trill.ui
 
+
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.Button
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.OutlinedTextField
-import androidx.compose.material.Text
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 import org.message.trill.MessageClient
+import org.message.trill.encryption.utils.TimestampFormatter
 import org.slf4j.LoggerFactory
 
-//
-//@Composable
-//fun MainScreen(client: MessageClient, userEmail: String) {
-//    var searchQuery by remember { mutableStateOf("") }
-//    var selectedConversation by remember { mutableStateOf<String?>(null) }
-//    var conversations by remember { mutableStateOf(mapOf<String, MutableList<ConversationMessage>>()) }
-//    var searchResults by remember { mutableStateOf<List<String>>(emptyList()) }
-//    var errorMessage by remember { mutableStateOf<String?>(null) }
-//    val scope = rememberCoroutineScope()
-//    val logger = LoggerFactory.getLogger("MainScreen")
-//
-//    Column(modifier = Modifier.fillMaxSize()) {
-//        errorMessage?.let { error ->
-//            Text(
-//                text = error,
-//                color = Color.Red,
-//                modifier = Modifier.padding(16.dp)
-//            )
-//        }
-//
-//        Row(
-//            modifier = Modifier.fillMaxWidth().padding(16.dp),
-//            verticalAlignment = Alignment.CenterVertically
-//        ) {
-//            OutlinedTextField(
-//                value = searchQuery,
-//                onValueChange = { searchQuery = it },
-//                label = { Text("Search contacts by email") },
-//                modifier = Modifier.weight(1f)
-//            )
-//            Button(
-//                onClick = {
-//                    if (searchQuery.isNotBlank()) {
-//                        scope.launch {
-//                            try {
-//                                searchResults = client.searchUsersByEmail(searchQuery)
-//                                errorMessage = null
-//                            } catch (e: Exception) {
-//                                logger.error("Failed to search users for query: $searchQuery", e)
-//                                errorMessage = "Failed to search users. Please try again."
-//                                searchResults = emptyList()
-//                            }
-//                        }
-//                    } else {
-//                        searchResults = emptyList()
-//                        errorMessage = null
-//                    }
-//                },
-//                modifier = Modifier.padding(start = 8.dp)
-//            ) {
-//                Text("Search")
-//            }
-//        }
-//
-//        Row(modifier = Modifier.fillMaxSize()) {
-//            LazyColumn(modifier = Modifier.weight(1f).fillMaxHeight().padding(8.dp)) {
-//                items(conversations.keys.filter {
-//                    searchQuery.isBlank() || it.contains(searchQuery, ignoreCase = true)
-//                }) { contact ->
-//                    ConversationItem(
-//                        contact = contact,
-//                        isSelected = contact == selectedConversation,
-//                        onClick = { selectedConversation = contact }
-//                    )
-//                }
-//                items(searchResults.filter { it !in conversations.keys }) { email ->
-//                    Button(onClick = {
-//                        selectedConversation = email
-//                        conversations = conversations.toMutableMap().apply {
-//                            this[email] = mutableListOf()
-//                        }
-//                    }) {
-//                        Text("Start conversation with $email")
-//                    }
-//                }
-//            }
-//
-//            selectedConversation?.let { contact ->
-//                Column(modifier = Modifier.weight(2f).fillMaxHeight()) {
-//                    ChatArea(
-//                        messages = conversations[contact] ?: emptyList(),
-//                        modifier = Modifier.weight(1f)
-//                    )
-//                    MessageInput { message ->
-//                        scope.launch {
-//                            try {
-//                                client.sendMessage(userEmail, contact, message)
-//
-//                                val updated = conversations.toMutableMap()
-//
-//                                updated[contact] = (updated[contact] ?: mutableListOf()).apply {
-//                                    add(ConversationMessage(message, true, Clock.System.now().toString()))
-//                                }
-//                                conversations = updated
-//                                errorMessage = null
-//                            } catch (e: Exception) {
-//                                logger.error("Failed to send message to $contact", e)
-//                                println("Failed to send message to $contact, ${e.message}")
-//                                errorMessage = "Failed to send message. Please try again."
-//                            }
-//                        }
-//                    }
-//                }
-//            } ?: Box(
-//                modifier = Modifier.weight(2f).fillMaxHeight(),
-//                contentAlignment = Alignment.Center
-//            ) {
-//                Text("Select a conversation to start chatting")
-//            }
-//        }
-//    }
-//
-//    LaunchedEffect(userEmail) {
-//        while (true) {
-//            try {
-//                val newMessages = client.receiveMessages(userEmail)
-//                conversations = conversations.toMutableMap().apply {
-//                    newMessages.forEach { msg ->
-//                        val contact = msg.senderId
-//                        this[contact] = (this[contact] ?: mutableListOf()).apply {
-//                            add(ConversationMessage(msg.content, false, msg.timestamp))
-//                        }
-//                    }
-//                }
-//                errorMessage = null
-//            } catch (e: Exception) {
-//                logger.error("Failed to receive messages for $userEmail", e)
-//                errorMessage = "Failed to receive messages. Retrying..."
-//            }
-//            delay(5000)
-//        }
-//    }
-//}
-
 @Composable
-fun MainScreen(client: MessageClient, userEmail: String) {
+fun MainScreen(
+    client: MessageClient,
+    currentUserEmail: String,
+    onNavigateToProfile: () -> Unit
+) {
+    val logger = LoggerFactory.getLogger("MainScreen")
+    val scope = rememberCoroutineScope()
+
     var searchQuery by remember { mutableStateOf("") }
-    var selectedConversation by remember { mutableStateOf<String?>(null) }
+    var selectedContactEmail by remember { mutableStateOf<String?>(null) }
+
     val conversations = remember { mutableStateMapOf<String, SnapshotStateList<ConversationMessage>>() }
     var searchResults by remember { mutableStateOf<List<String>>(emptyList()) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-    val logger = LoggerFactory.getLogger("MainScreen")
+    var isLoadingContacts by remember { mutableStateOf(true) }
+    var isLoadingMessages by remember { mutableStateOf(false) }
+    var globalErrorMessage by remember { mutableStateOf<String?>(null) }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        errorMessage?.let { error ->
-            Text(
-                text = error,
-                color = Color.Red,
-                modifier = Modifier.padding(16.dp)
-            )
-        }
+    val chatListState = rememberLazyListState()
 
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                label = { Text("Search contacts by email") },
-                modifier = Modifier.weight(1f)
-            )
-            Button(
-                onClick = {
-                    if (searchQuery.isNotBlank()) {
-                        scope.launch {
-                            try {
-                                searchResults = client.searchUsersByEmail(searchQuery)
-                                errorMessage = null
-                            } catch (e: Exception) {
-                                logger.error("Failed to search users for query: $searchQuery", e)
-                                errorMessage = "Failed to search users. Please try again."
-                                searchResults = emptyList()
-                            }
-                        }
-                    } else {
-                        searchResults = emptyList()
-                        errorMessage = null
-                    }
-                },
-                modifier = Modifier.padding(start = 8.dp)
-            ) {
-                Text("Search")
+    LaunchedEffect(Unit) {
+        isLoadingContacts = true
+        globalErrorMessage = null
+        try {
+            logger.info("MainScreen: Loading recent conversation partners for $currentUserEmail")
+            val partners = client.getRecentConversationPartners(currentUserEmail)
+            partners.forEach { partnerEmail ->
+                conversations.putIfAbsent(partnerEmail, mutableStateListOf())
             }
+            logger.info("MainScreen: Loaded ${partners.size} recent partners.")
+        } catch (e: Exception) {
+            logger.error("MainScreen: Error loading recent contacts: ${e.message}", e)
+            globalErrorMessage = "Could not load contacts: ${e.message}"
+        } finally {
+            isLoadingContacts = false
         }
+    }
 
-        Row(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(modifier = Modifier.weight(1f).fillMaxHeight().padding(8.dp)) {
-                items(conversations.keys.filter {
-                    searchQuery.isBlank() || it.contains(searchQuery, ignoreCase = true)
-                }) { contact ->
-                    ConversationItem(
-                        contact = contact,
-                        isSelected = contact == selectedConversation,
-                        onClick = { selectedConversation = contact }
-                    )
+    LaunchedEffect(selectedContactEmail) {
+        selectedContactEmail?.let { contact ->
+            isLoadingMessages = true
+            globalErrorMessage = null
+            try {
+                logger.info("MainScreen: Loading messages for conversation with $contact")
+                val messages = client.loadMessagesForConversation(currentUserEmail, contact)
+                conversations[contact] = messages.toMutableStateList()
+                if (messages.isNotEmpty()) {
+                    scope.launch { chatListState.animateScrollToItem(messages.size - 1) }
                 }
-                items(searchResults.filter { it !in conversations.keys }) { email ->
-                    Button(onClick = {
-                        selectedConversation = email
-                        conversations.getOrPut(email) { mutableStateListOf() }
-                    }) {
-                        Text("Start conversation with $email")
-                    }
-                }
-            }
-
-            selectedConversation?.let { contact ->
-                Column(modifier = Modifier.weight(2f).fillMaxHeight()) {
-                    ChatArea(
-                        messages = conversations[contact] ?: emptyList(),
-                        modifier = Modifier.weight(1f)
-                    )
-                    MessageInput { message ->
-                        scope.launch {
-                            try {
-                                client.sendMessage(userEmail, contact, message)
-                                val list = conversations.getOrPut(contact) { mutableStateListOf() }
-                                list.add(ConversationMessage(message, true, Clock.System.now().toString()))
-                                errorMessage = null
-                            } catch (e: Exception) {
-                                logger.error("Failed to send message to $contact", e)
-                                println("Failed to send message to $contact, ${e.message}")
-                                errorMessage = "Failed to send message. Please try again."
-                            }
-                        }
-                    }
-                }
-            } ?: Box(
-                modifier = Modifier.weight(2f).fillMaxHeight(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Select a conversation to start chatting")
+                logger.info("MainScreen: Loaded ${messages.size} messages for $contact.")
+            } catch (e: Exception) {
+                logger.error("MainScreen: Error loading messages for $contact: ${e.message}", e)
+                globalErrorMessage = "Could not load messages: ${e.message}"
+            } finally {
+                isLoadingMessages = false
             }
         }
     }
 
-    LaunchedEffect(userEmail) {
+    LaunchedEffect(currentUserEmail) {
         while (true) {
             try {
-                val newMessages = client.receiveMessages(userEmail)
-                newMessages.forEach { msg ->
-                    val contact = msg.senderId
-                    val list = conversations.getOrPut(contact) { mutableStateListOf() }
-                    list.add(ConversationMessage(msg.content, false, msg.timestamp))
+                logger.debug("MainScreen: Polling for new messages for $currentUserEmail.")
+                val newReceivedMessages = client.receiveMessages(currentUserEmail)
+                if (newReceivedMessages.isNotEmpty()) {
+                    globalErrorMessage = null
+                    logger.info("MainScreen: Received ${newReceivedMessages.size} new messages.")
                 }
-                errorMessage = null
+
+                newReceivedMessages.forEach { receivedMsg ->
+                    val contact = receivedMsg.senderId
+                    val uiMessage = ConversationMessage(
+                        id = Clock.System.now().toEpochMilliseconds().toString() + receivedMsg.content.hashCode(),
+                        content = receivedMsg.content,
+                        isSent = false,
+                        timestamp = TimestampFormatter.format(receivedMsg.timestamp.toLongOrNull() ?: 0L)
+                    )
+
+                    val messageList = conversations.getOrPut(contact) { mutableStateListOf() }
+                    if (!messageList.any { it.content == uiMessage.content && it.timestamp == uiMessage.timestamp }) {
+                        messageList.add(uiMessage)
+                    }
+
+                    if (contact == selectedContactEmail && messageList.isNotEmpty()) {
+                        scope.launch {
+                            chatListState.animateScrollToItem(messageList.size - 1)
+                        }
+                    }
+                }
             } catch (e: Exception) {
-                logger.error("Failed to receive messages for $userEmail", e)
-                errorMessage = "Failed to receive messages. Retrying..."
+                logger.error("MainScreen: Error polling for messages: ${e.message}", e)
             }
-            delay(5000)
+            delay(5000L)
+        }
+    }
+
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(selectedContactEmail ?: "Messages") },
+                actions = {
+                    IconButton(onClick = onNavigateToProfile) {
+                        Icon(Icons.Filled.AccountCircle, contentDescription = "Profile")
+                    }
+                }
+            )
+        }
+    ) { paddingValues ->
+        Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            globalErrorMessage?.let {
+                Text(
+                    it,
+                    color = MaterialTheme.colors.error,
+                    modifier = Modifier.fillMaxWidth().padding(8.dp).background(MaterialTheme.colors.error.copy(alpha = 0.1f)).padding(8.dp)
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    label = { Text("Search or start new chat (email)") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    trailingIcon = {
+                        if (searchQuery.isNotBlank()) {
+                            IconButton(onClick = {
+                                if (searchQuery.isNotBlank() && searchQuery != currentUserEmail) {
+                                    scope.launch {
+                                        globalErrorMessage = null
+                                        try {
+                                            searchResults = client.searchUsersByEmail(searchQuery)
+                                            if (searchResults.isEmpty()) {
+                                                globalErrorMessage = "No users found for '$searchQuery'."
+                                            }
+                                        } catch (e: Exception) {
+                                            globalErrorMessage = "Search failed: ${e.message}"
+                                        }
+                                    }
+                                }
+                            }) {
+                                Icon(Icons.Filled.Search, "Search users")
+                            }
+                        }
+                    }
+                )
+            }
+
+            Row(modifier = Modifier.fillMaxSize()) {
+                Column(modifier = Modifier.weight(1f).fillMaxHeight().padding(end = 8.dp)) {
+                    if (isLoadingContacts) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    } else {
+                        LazyColumn(modifier = Modifier.fillMaxHeight()) {
+                            val displayContacts = conversations.keys
+                                .filter { it.contains(searchQuery, ignoreCase = true) || searchQuery.isBlank() }
+                                .sorted()
+
+                            items(displayContacts) { contactEmail ->
+                                ConversationItem(
+                                    contact = contactEmail,
+                                    isSelected = contactEmail == selectedContactEmail,
+                                    onClick = {
+                                        selectedContactEmail = contactEmail
+                                        searchResults = emptyList()
+                                        searchQuery = ""
+                                    }
+                                )
+                            }
+
+                            val newSearchResults = searchResults.filter { it !in displayContacts && it != currentUserEmail }
+                            if (newSearchResults.isNotEmpty()) {
+                                item {
+                                    Text("Search Results:", style = MaterialTheme.typography.subtitle2, modifier = Modifier.padding(8.dp))
+                                }
+                                items(newSearchResults) { email ->
+                                    ConversationItem(
+                                        contact = "Start chat with $email",
+                                        isSelected = false,
+                                        onClick = {
+                                            selectedContactEmail = email
+                                            conversations.putIfAbsent(email, mutableStateListOf())
+                                            searchQuery = ""
+                                            searchResults = emptyList()
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                selectedContactEmail?.let { contact ->
+                    Column(modifier = Modifier.weight(2f).fillMaxHeight()) {
+                        if (isLoadingMessages) {
+                            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            }
+                        } else {
+                            ChatArea(
+                                messages = conversations[contact] ?: emptyList(),
+                                listState = chatListState,
+                                modifier = Modifier.weight(1f).fillMaxWidth()
+                            )
+                        }
+                        MessageInput { messageText ->
+                            scope.launch {
+                                val tempId = Clock.System.now().toEpochMilliseconds().toString() + messageText.hashCode()
+                                val optimisticMessage = ConversationMessage(
+                                    id = tempId,
+                                    content = messageText,
+                                    isSent = true,
+                                    timestamp = "Sending..."
+                                )
+                                val messageList = conversations.getOrPut(contact) { mutableStateListOf() }
+                                messageList.add(optimisticMessage)
+                                if (messageList.isNotEmpty()) chatListState.animateScrollToItem(messageList.size - 1)
+
+                                try {
+                                    client.sendMessage(currentUserEmail, contact, messageText)
+                                    messageList.remove(optimisticMessage)
+                                    val updatedMessages = client.loadMessagesForConversation(currentUserEmail, contact)
+                                    conversations[contact] = updatedMessages.toMutableStateList()
+                                    if (updatedMessages.isNotEmpty()) chatListState.animateScrollToItem(updatedMessages.size -1)
+
+                                } catch (e: Exception) {
+                                    globalErrorMessage = "Failed to send: ${e.message}"
+                                    messageList.find { it.id == tempId }?.let {
+                                        val updated = it.copy(timestamp = "Failed to send")
+                                        val index = messageList.indexOf(it)
+                                        if(index != -1) messageList[index] = updated
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } ?: Box(
+                    modifier = Modifier.weight(2f).fillMaxHeight(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(if (isLoadingContacts) "Loading contacts..." else "Select or search a contact to chat.")
+                }
+            }
         }
     }
 }
 
-data class ConversationMessage(val content: String, val isSent: Boolean, val timestamp: String)
+data class ConversationMessage(val id: String, val content: String, val isSent: Boolean, val timestamp: String)

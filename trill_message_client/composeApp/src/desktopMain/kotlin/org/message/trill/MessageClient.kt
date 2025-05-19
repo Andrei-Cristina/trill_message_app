@@ -1,5 +1,8 @@
 package org.message.trill
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.datetime.Clock
 import org.message.trill.encryption.keys.KeyManager
 import org.message.trill.messaging.models.ReceivedMessage
 import org.message.trill.networking.NetworkManager
@@ -7,7 +10,9 @@ import org.message.trill.session.sesame.DeviceRecord
 import org.message.trill.session.sesame.SesameManager
 import org.message.trill.session.sesame.UserRecord
 import org.message.trill.session.storage.SessionStorage
+import org.message.trill.ui.ConversationMessage
 import java.util.*
+import org.message.trill.encryption.utils.TimestampFormatter
 
 actual class MessageClient actual constructor() {
     private val sessionStorage = SessionStorage()
@@ -39,35 +44,82 @@ actual class MessageClient actual constructor() {
 
 
 
+//    actual suspend fun sendMessage(senderId: String, recipientUserId: String, plaintext: String) {
+//        println("Sending message: $plaintext to server")
+//        sesameManager.sendMessage(senderId ,recipientUserId, plaintext.toByteArray(Charsets.UTF_8))
+//    }
+
     actual suspend fun sendMessage(senderId: String, recipientUserId: String, plaintext: String) {
-        println("Sending message: $plaintext to server")
-        sesameManager.sendMessage(senderId ,recipientUserId, plaintext.toByteArray(Charsets.UTF_8))
+        withContext(Dispatchers.IO) {
+            println("Preparing to send message from $senderId to $recipientUserId: '$plaintext'")
+            try {
+                sesameManager.sendMessage(senderId ,recipientUserId, plaintext.toByteArray(Charsets.UTF_8))
+                println("Message sent via SesameManager from $senderId to $recipientUserId.")
+
+                val timestamp = Clock.System.now().toEpochMilliseconds()
+                sessionStorage.saveMessage(
+                    senderEmail = senderId,
+                    receiverEmail = recipientUserId,
+                    content = plaintext,
+                    timestamp = timestamp,
+                    isSentByLocalUser = true
+                )
+                println("Sent message saved locally for conversation between $senderId and $recipientUserId.")
+            } catch (e: Exception) {
+                println("Failed to send or save message from $senderId to $recipientUserId: ${e.message}")
+                throw Exception("Message sending failed: ${e.message}", e)
+            }
+        }
     }
 
     actual suspend fun receiveMessages(email: String): List<ReceivedMessage> {
-        val messages = networkManager.fetchMessages(email, sessionStorage.loadDeviceId(email))
-        return messages.map { message ->
-            val plaintext = sesameManager.receiveMessage(message)
-            ReceivedMessage(message.senderId, plaintext, message.timestamp)
-        }
+        return withContext(Dispatchers.IO) {
+            println("Checking for new messages for $email")
+            val deviceId = sessionStorage.loadDeviceId(email)
+            val networkMessages = networkManager.fetchMessages(email, deviceId)
+            println("Fetched ${networkMessages.size} raw messages from network for $email.")
 
-//        val deviceId = sessionStorage.loadDeviceId(email)
-//        println("receiveMessages: email=$email, deviceId=$deviceId")
-//
-//        val messages = networkManager.fetchMessages(email, deviceId)
-//        println("Fetched ${messages.size} messages for $email: ${messages.map { "${it.senderId}/${it.recipientDeviceId}" }}")
-//
-//        if (messages.isEmpty()) {
-//            println("No messages found for $email/$deviceId")
-//        }
-//
+            val processedMessages = mutableListOf<ReceivedMessage>()
+            for (netMsg in networkMessages) {
+                try {
+                    if (netMsg.recipientId != email) {
+                        println("Skipping message not intended for $email. Actual recipient: ${netMsg.recipientId}, Sender: ${netMsg.senderId}")
+                        continue
+                    }
+
+                    val plaintext = sesameManager.receiveMessage(netMsg)
+                    val receivedMsg = ReceivedMessage(
+                        senderId = netMsg.senderId,
+                        content = plaintext,
+                        timestamp = netMsg.timestamp
+                    )
+                    processedMessages.add(receivedMsg)
+
+                    val timestampMillis = netMsg.timestamp.toLongOrNull() ?: Clock.System.now().toEpochMilliseconds()
+                    sessionStorage.saveMessage(
+                        senderEmail = receivedMsg.senderId,
+                        receiverEmail = email,
+                        content = plaintext,
+                        timestamp = timestampMillis,
+                        isSentByLocalUser = false
+                    )
+                    println("Received and saved message from ${receivedMsg.senderId} for $email.")
+                } catch (e: Exception) {
+                    println("Failed to process/decrypt or save received message for $email from ${netMsg.senderId}: ${e.message}")
+                }
+            }
+            println("Processed ${processedMessages.size} messages for $email.")
+            processedMessages
+        }
+    }
+
+//    actual suspend fun receiveMessages(email: String): List<ReceivedMessage> {
+//        val messages = networkManager.fetchMessages(email, sessionStorage.loadDeviceId(email))
 //        return messages.map { message ->
-//            println("Processing message from ${message.senderId}/${message.senderDeviceId} to ${message.recipientId}/${message.recipientDeviceId}")
-//
 //            val plaintext = sesameManager.receiveMessage(message)
 //            ReceivedMessage(message.senderId, plaintext, message.timestamp)
 //        }
-    }
+
 
     actual suspend fun loginUser(email: String, nickname: String): String {
         val deviceId = sessionStorage.loadDeviceId(email)
@@ -83,6 +135,43 @@ actual class MessageClient actual constructor() {
 
     actual suspend fun searchUsersByEmail(email: String): List<String> {
         return networkManager.searchUsersByEmail(email)
+    }
+
+    actual suspend fun getRecentConversationPartners(currentUserEmail: String): List<String> {
+        return withContext(Dispatchers.IO) {
+            println("Fetching recent conversation partners for $currentUserEmail")
+            val partners = sessionStorage.getRecentConversationPartners(currentUserEmail)
+            println("Found ${partners.size} recent partners for $currentUserEmail.")
+            partners
+        }
+    }
+
+    actual suspend fun loadMessagesForConversation(currentUserEmail: String, contactEmail: String): List<ConversationMessage> {
+        return withContext(Dispatchers.IO) {
+            println("Loading messages for conversation between $currentUserEmail and $contactEmail")
+            val localDbMessages = sessionStorage.loadMessagesForConversation(currentUserEmail, contactEmail)
+            val uiMessages = localDbMessages.map { dbMsg ->
+                ConversationMessage(
+                    id = dbMsg.id.toString(),
+                    content = dbMsg.content,
+                    isSent = dbMsg.senderEmail == currentUserEmail,
+                    timestamp = TimestampFormatter.format(dbMsg.timestamp)
+                )
+            }
+            println("Loaded ${uiMessages.size} messages for conversation $currentUserEmail <-> $contactEmail.")
+            uiMessages
+        }
+    }
+
+    actual suspend fun getLocalUserNickname(email: String): String? {
+        return withContext(Dispatchers.IO) {
+            try {
+                sessionStorage.listClientInfos().find { it.first == email }?.second
+            } catch (e: Exception) {
+                println("Could not retrieve nickname for $email from local storage: ${e.message}")
+                null
+            }
+        }
     }
 
     private fun ByteArray.encodeToBase64(): String = Base64.getEncoder().encodeToString(this)

@@ -13,7 +13,10 @@ import androidx.compose.ui.unit.dp
 fun MessageInput(onSend: (String) -> Unit) {
     var message by remember { mutableStateOf("") }
 
-    Row(modifier = Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         OutlinedTextField(
             value = message,
             onValueChange = { message = it },
@@ -34,3 +37,4 @@ fun MessageInput(onSend: (String) -> Unit) {
         }
     }
 }
+

@@ -8,6 +8,7 @@ import org.message.trill.encryption.double_ratchet.RatchetState
 import org.message.trill.encryption.keys.IdentityKey
 import org.message.trill.encryption.keys.PreKey
 import org.message.trill.encryption.keys.SignedPreKey
+import org.message.trill.messaging.models.LocalDbMessage
 import org.message.trill.session.sesame.DeviceRecord
 import org.message.trill.session.sesame.Session
 import org.message.trill.session.sesame.UserRecord
@@ -279,6 +280,37 @@ actual class SessionStorage {
         } catch (e: IllegalArgumentException) {
             false
         }
+    }
+
+    actual fun saveMessage(senderEmail: String, receiverEmail: String, content: String, timestamp: Long, isSentByLocalUser: Boolean) {
+        queries.insertMessage(
+            sender_email = senderEmail,
+            receiver_email = receiverEmail,
+            content = content,
+            timestamp = timestamp,
+            is_sent_by_local_user = if (isSentByLocalUser) 1L else 0L
+        )
+    }
+
+    actual fun loadMessagesForConversation(currentUserEmail: String, contactEmail: String): List<LocalDbMessage> {
+        return queries.getMessagesForConversation(user1_email = currentUserEmail, user2_email = contactEmail)
+            .executeAsList()
+            .map {
+                LocalDbMessage(
+                    id = it.id,
+                    senderEmail = it.sender_email,
+                    receiverEmail = it.receiver_email,
+                    content = it.content,
+                    timestamp = it.timestamp,
+                    isSentByLocalUser = it.is_sent_by_local_user == 1L
+                )
+            }
+    }
+
+    actual fun getRecentConversationPartners(currentUserEmail: String): List<String> {
+        return queries.getRecentConversations(current_user_email = currentUserEmail)
+            .executeAsList()
+            .map { it.contact_email }
     }
 
     private fun ByteArray.encodeToBase64(): String = Base64.getEncoder().encodeToString(this)
