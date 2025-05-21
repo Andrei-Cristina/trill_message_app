@@ -167,7 +167,7 @@ actual object EncryptionUtils {
         val publicKey = ed25519ScalarMultiplication(a)
         val encodedA = encodePoint(publicKey)
 
-        // Compute S = r + SHA-512(R || A || message) * a (mod L)
+        // Compute S = r + SHA-512(R || A || message) * a (% L)
         val hRAM = sha512(encodedR + encodedA + data)
         val hRAMReduced = scalarReduce(hRAM)
         val s = scalarAdd(rReduced, scalarMultiply(hRAMReduced, a))
@@ -247,18 +247,18 @@ actual object EncryptionUtils {
             swap = kt
 
             val a = (x2 + z2).mod(X25519_P)
-            val aa = a * a mod X25519_P
+            val aa = a * a % X25519_P
             val b = (x2 - z2).mod(X25519_P)
-            val bb = b * b mod X25519_P
+            val bb = b * b % X25519_P
             val e = (aa - bb).mod(X25519_P)
             val c = (x3 + z3).mod(X25519_P)
             val d = (x3 - z3).mod(X25519_P)
-            val da = d * a mod X25519_P
-            val cb = c * b mod X25519_P
+            val da = d * a % X25519_P
+            val cb = c * b % X25519_P
 
             x3 = (da + cb).pow(2).mod(X25519_P)
             z3 = x1 * (da - cb).pow(2).mod(X25519_P)
-            x2 = aa * bb mod X25519_P
+            x2 = aa * bb % X25519_P
             z2 = e * (aa + X25519_A * e).mod(X25519_P)
         }
 
@@ -272,7 +272,7 @@ actual object EncryptionUtils {
         }
 
         val z2Inv = z2.modInverse(X25519_P)
-        val result = x2 * z2Inv mod X25519_P
+        val result = x2 * z2Inv % X25519_P
 
         val resultBytes = result.toByteArray()
         val output = ByteArray(32)
@@ -365,7 +365,7 @@ actual object EncryptionUtils {
                 h = h.add(BigInteger.valueOf((cofactor[i].toInt() and 0xff).toLong()).shiftLeft(8 * i))
             }
         }
-        e = e * h
+        e *= h
 
         var q = Ed25519Point(BigInteger.ZERO, BigInteger.ONE, BigInteger.ONE, BigInteger.ZERO)
         var p = ED25519_BASEPOINT
@@ -396,7 +396,7 @@ actual object EncryptionUtils {
                 h = h.add(BigInteger.valueOf((cofactor[i].toInt() and 0xff).toLong()).shiftLeft(8 * i))
             }
         }
-        e = e * h
+        e *= h
 
         var q = Ed25519Point(BigInteger.ZERO, BigInteger.ONE, BigInteger.ONE, BigInteger.ZERO)
         var p = point
@@ -411,34 +411,34 @@ actual object EncryptionUtils {
     }
 
     private fun ed25519PointAdd(p: Ed25519Point, q: Ed25519Point): Ed25519Point {
-        val a = (p.y - p.x) * (q.y - q.x) mod ED25519_P
-        val b = (p.y + p.x) * (q.y + q.x) mod ED25519_P
-        val c = BigInteger.TWO * p.t * q.t * ED25519_D mod ED25519_P
-        val d = BigInteger.TWO * p.z * q.z mod ED25519_P
+        val a = (p.y - p.x) * (q.y - q.x) % ED25519_P
+        val b = (p.y + p.x) * (q.y + q.x) % ED25519_P
+        val c = BigInteger.TWO * p.t * q.t * ED25519_D % ED25519_P
+        val d = BigInteger.TWO * p.z * q.z % ED25519_P
         val e = b - a
         val f = d - c
         val g = d + c
         val h = b + a
-        val x3 = e * f mod ED25519_P
-        val y3 = g * h mod ED25519_P
-        val t3 = e * h mod ED25519_P
-        val z3 = f * g mod ED25519_P
+        val x3 = e * f % ED25519_P
+        val y3 = g * h % ED25519_P
+        val t3 = e * h % ED25519_P
+        val z3 = f * g % ED25519_P
         return Ed25519Point(x3, y3, z3, t3)
     }
 
     private fun ed25519PointDouble(p: Ed25519Point): Ed25519Point {
-        val a = p.x * p.x mod ED25519_P
-        val b = p.y * p.y mod ED25519_P
-        val c = BigInteger.TWO * p.z * p.z mod ED25519_P
-        val d = (-a) mod ED25519_P
-        val e = (p.x + p.y) * (p.x + p.y) - a - b mod ED25519_P
+        val a = p.x * p.x % ED25519_P
+        val b = p.y * p.y % ED25519_P
+        val c = BigInteger.TWO * p.z * p.z % ED25519_P
+        val d = (-a) % ED25519_P
+        val e = (p.x + p.y) * (p.x + p.y) - a - b % ED25519_P
         val g = d + b
         val f = g - c
         val h = d - b
-        val x3 = e * f mod ED25519_P
-        val y3 = g * h mod ED25519_P
-        val t3 = e * h mod ED25519_P
-        val z3 = f * g mod ED25519_P
+        val x3 = e * f % ED25519_P
+        val y3 = g * h % ED25519_P
+        val t3 = e * h % ED25519_P
+        val z3 = f * g % ED25519_P
         return Ed25519Point(x3, y3, z3, t3)
     }
 
@@ -448,10 +448,10 @@ actual object EncryptionUtils {
     }
 
     private fun ed25519PointEquals(p: Ed25519Point, q: Ed25519Point): Boolean {
-        val x1z2 = p.x * q.z mod ED25519_P
-        val x2z1 = q.x * p.z mod ED25519_P
-        val y1z2 = p.y * q.z mod ED25519_P
-        val y2z1 = q.y * p.z mod ED25519_P
+        val x1z2 = p.x * q.z % ED25519_P
+        val x2z1 = q.x * p.z % ED25519_P
+        val y1z2 = p.y * q.z % ED25519_P
+        val y2z1 = q.y * p.z % ED25519_P
         return x1z2 == x2z1 && y1z2 == y2z1
     }
 
@@ -486,9 +486,9 @@ actual object EncryptionUtils {
         }
 
         // Compute x from y^2 = x^2 + ax + b
-        val y2 = y * y mod ED25519_P
-        val u = (y2 - BigInteger.ONE) mod ED25519_P
-        val v = (ED25519_D * y2 + BigInteger.ONE) mod ED25519_P
+        val y2 = y * y % ED25519_P
+        val u = (y2 - BigInteger.ONE) % ED25519_P
+        val v = (ED25519_D * y2 + BigInteger.ONE) % ED25519_P
         var x = sqrtMod(u * v.modInverse(ED25519_P), ED25519_P)
 
         if (x == BigInteger.ZERO && u != BigInteger.ZERO) {
@@ -499,7 +499,7 @@ actual object EncryptionUtils {
             x = (-x).mod(ED25519_P)
         }
 
-        return Ed25519Point(x, y, BigInteger.ONE, x * y mod ED25519_P)
+        return Ed25519Point(x, y, BigInteger.ONE, x * y % ED25519_P)
     }
 
     private fun encodeScalar(scalar: ByteArray): ByteArray {
@@ -531,13 +531,13 @@ actual object EncryptionUtils {
             var i = 0
             var temp = t
             while (temp != BigInteger.ONE) {
-                temp = temp * temp mod p
+                temp = temp * temp % p
                 i++
             }
             val b = c.modPow(BigInteger.ONE.shiftLeft(m.toInt() - i - 1), p)
-            r = r * b mod p
-            c = b * b mod p
-            t = t * c mod p
+            r = r * b % p
+            c = b * b % p
+            t = t * c % p
             m = BigInteger.valueOf(i.toLong())
         }
 
