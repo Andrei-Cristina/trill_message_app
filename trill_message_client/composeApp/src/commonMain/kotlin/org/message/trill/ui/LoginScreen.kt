@@ -14,13 +14,13 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun LoginScreen(
-    onLogin: suspend (email: String) -> Unit, // Made suspend
+    onLogin: suspend (email: String) -> Unit,
     onNavigateToRegister: () -> Unit
 ) {
     var email by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope() // For launching suspend onLogin
+    val scope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),

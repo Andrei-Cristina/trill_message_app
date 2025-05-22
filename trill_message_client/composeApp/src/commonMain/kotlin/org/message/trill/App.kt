@@ -1,13 +1,13 @@
 package org.message.trill
 
-import androidx.compose.material.MaterialTheme
 import androidx.compose.runtime.*
 import org.message.trill.ui.AppNavigation
+import org.message.trill.ui.TrillAppTheme
 
 @Composable
 fun App() {
-    MaterialTheme {
-        val client = MessageClient()
+    TrillAppTheme {
+        val client = remember { MessageClient() }
         AppNavigation(client)
     }
 }
