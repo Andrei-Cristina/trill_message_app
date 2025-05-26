@@ -193,14 +193,57 @@ class NetworkManager {
     }
 
 
-    suspend fun searchUsersByEmail(email: String): List<String> {
+//    suspend fun searchUsersByEmail(email: String): List<User> {
+//        try {
+//            val response = client.post("$baseUrl/users/search") {
+//                contentType(ContentType.Application.Json)
+//                setBody(EmailSearchRequest(email))
+//            }
+//            val body = response.bodyAsText()
+//            println("Search users response: status=${response.status}, body=$body")
+//
+//            return when (response.status) {
+//                HttpStatusCode.OK -> {
+//                    if (body.isEmpty() || body == "[]") {
+//                        println("Empty search results for email: $email")
+//                        emptyList()
+//                    } else {
+//                        try {
+//                            val user = Json.decodeFromString<User>(body)
+//                            listOf(user)
+//                        } catch (e: Exception) {
+//                            try {
+//                                Json.decodeFromString<List<User>>(body)
+//                            } catch (e2: Exception) {
+//                                println("Failed to parse search response: $body, $e2")
+//                                emptyList()
+//                            }
+//                        }
+//                    }
+//                }
+//                HttpStatusCode.NotFound -> {
+//                    println("No users found for email: $email")
+//                    emptyList()
+//                }
+//                else -> {
+//                    println("Unexpected response for search: ${response.status}, body=$body")
+//                    emptyList()
+//                }
+//            }
+//        } catch (e: Exception) {
+//            println("Error during searchUsersByEmail: $email, $e")
+//            return emptyList()
+//        }
+//    }
+
+    suspend fun searchUsersByEmail(email: String): List<User> {
         try {
             val response = client.post("$baseUrl/users/search") {
                 contentType(ContentType.Application.Json)
                 setBody(EmailSearchRequest(email))
             }
             val body = response.bodyAsText()
-            println("Search users response: status=${response.status}, body=$body")
+            println("Search users response: status=${response.status}, body=$body for query: $email")
 
             return when (response.status) {
                 HttpStatusCode.OK -> {
@@ -209,29 +252,29 @@ class NetworkManager {
                         emptyList()
                     } else {
                         try {
-                            val user = Json.decodeFromString<User>(body)
-                            listOf(user.email)
-                        } catch (e: Exception) {
+                            Json.decodeFromString<List<User>>(body)
+                        } catch (e: kotlinx.serialization.SerializationException) {
                             try {
-                                Json.decodeFromString<List<String>>(body)
-                            } catch (e2: Exception) {
-                                println("Failed to parse search response: $body, $e2")
+                                val user = Json.decodeFromString<User>(body)
+                                listOf(user)
+                            } catch (e2: kotlinx.serialization.SerializationException) {
+                                println("Failed to parse search response as List<User> or User: '$body'. Error for List: ${e.message}. Error for User: ${e2.message}")
                                 emptyList()
                             }
                         }
                     }
                 }
                 HttpStatusCode.NotFound -> {
-                    println("No users found for email: $email")
+                    println("No users found for email: $email (404)")
                     emptyList()
                 }
                 else -> {
-                    println("Unexpected response for search: ${response.status}, body=$body")
+                    println("Unexpected response for search users ($email): ${response.status}, body=$body")
                     emptyList()
                 }
             }
         } catch (e: Exception) {
-            println("Error during searchUsersByEmail: $email, $e")
+            println("Error during searchUsersByEmail for '$email': ${e.message}")
             return emptyList()
         }
     }

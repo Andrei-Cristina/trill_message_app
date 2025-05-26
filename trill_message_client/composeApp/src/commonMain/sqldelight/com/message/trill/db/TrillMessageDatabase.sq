@@ -168,3 +168,13 @@ FROM sessions WHERE user_id = ? AND device_id = ?;
 insertOrReplaceSession:
 INSERT OR REPLACE INTO sessions (session_id, user_id, device_id, ratchet_state, is_initiating, timestamp)
 VALUES (?, ?, ?, ?, ?, ?);
+
+selectUserRecord:
+SELECT user_id, nickname, is_stale, stale_since
+FROM user_records
+WHERE user_id = :user_id;
+
+updateUserRecordNickname:
+UPDATE user_records
+SET nickname = :nickname
+WHERE user_id = :user_id;

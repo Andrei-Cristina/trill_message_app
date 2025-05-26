@@ -19,8 +19,7 @@ class LoginScreenHost(private val client: MessageClient) : Screen {
         val navigator = LocalNavigator.currentOrThrow
         LoginScreen(
             onLogin = { email ->
-                val nickname = client.getLocalUserNickname(email) ?: email
-                client.loginUser(email, nickname)
+                client.loginUser(email)
                 navigator.replaceAll(MainScreenHost(client, email))
             },
             onNavigateToRegister = {
@@ -38,7 +37,7 @@ class RegisterScreenHost(private val client: MessageClient) : Screen {
             onRegister = { email, nickname ->
                 client.registerUser(email, nickname)
                 client.registerDevice(email, nickname)
-                client.loginUser(email, nickname)
+                client.loginUser(email)
                 navigator.replaceAll(MainScreenHost(client, email))
             },
             onNavigateToLogin = {

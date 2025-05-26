@@ -56,7 +56,15 @@ fun ProfileScreen(
 
             Button(
                 onClick = {
-                    onLogout()
+                    scope.launch {
+                        try {
+                            client.userLogOut()
+                            onLogout()
+                        } catch (e: Exception) {
+                            println("Error during logout process: ${e.message}")
+                            onLogout()
+                        }
+                    }
                 },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.error)

@@ -12,19 +12,43 @@ import org.message.trill.messaging.models.LocalDbMessage
 import org.message.trill.session.sesame.DeviceRecord
 import org.message.trill.session.sesame.Session
 import org.message.trill.session.sesame.UserRecord
+import java.io.File
 import java.util.*
 import kotlin.NoSuchElementException
 
-actual class SessionStorage {
-    private val driver: SqlDriver = JdbcSqliteDriver("jdbc:sqlite:app.db")
+fun sanitizeEmailForFilename(email: String): String {
+    val username = email.substringBefore("@")
+    val provider = email.substringAfter("@").substringBefore(".")
+    val sanitizedUsername = username.replace(Regex("[^a-zA-Z0-9_.-]"), "_")
+    val sanitizedProvider = provider.replace(Regex("[^a-zA-Z0-9_.-]"), "_")
+
+    return "${sanitizedUsername}_${sanitizedProvider}"
+}
+
+actual class SessionStorage(private val currentUser: String) {
+    private val driver: SqlDriver
     private val database: TrillMessageDatabase
     private val queries: TrillMessageDatabaseQueries
 
     init {
+        val dbFileName = sanitizeEmailForFilename(currentUser) + ".db"
+        val dbDir = File("user_dbs")
+        if (!dbDir.exists()) {
+            dbDir.mkdirs()
+        }
+        val dbFile = File(dbDir, dbFileName)
+
+        driver = JdbcSqliteDriver("jdbc:sqlite:${dbFile.absolutePath}")
         TrillMessageDatabase.Schema.create(driver)
         database = TrillMessageDatabase(driver)
         queries = database.trillMessageDatabaseQueries
-        driver.execute(null, "PRAGMA journal_mode=WAL;", 0)
+        try {
+            driver.execute(null, "PRAGMA foreign_keys=ON;", 0)
+            driver.execute(null, "PRAGMA journal_mode=WAL;", 0)
+        } catch (e: Exception) {
+            println("Warning: Could not set PRAGMA for $currentUser's database: ${e.message}")
+        }
+        println("SessionStorage initialized for user $currentUser with DB: ${dbFile.absolutePath}")
     }
 
     actual fun getIdentityKey(userEmail: String): IdentityKey? {
@@ -182,6 +206,102 @@ actual class SessionStorage {
         }
     }
 
+//    actual fun saveUserRecords(userRecords: MutableMap<String, UserRecord>) {
+//        try {
+//            database.transaction {
+//                userRecords.forEach { (userId, userRecord) ->
+//                    queries.insertOrReplaceUserRecord(
+//                        user_id = userId,
+//                        nickname = userRecord.nickname.ifEmpty { null },
+//                        is_stale = if (userRecord.isStale) 1 else 0,
+//                        stale_since = userRecord.staleTransitionTimestamp
+//                    )
+//                    println("Saved user record for $userId with nickname '${userRecord.nickname}'")
+//                    userRecord.devices.forEach l1@{ (deviceId, deviceRecord) ->
+//                        if (deviceRecord.publicKey.isEmpty()) {
+//                            println("Skipping device $deviceId for $userId: Empty public key")
+//                            return@l1
+//                        }
+//                        queries.insertOrReplaceDeviceRecord(
+//                            user_id = userId,
+//                            device_id = deviceId,
+//                            public_key = decodeIdentityKey(deviceRecord.publicKey),
+//                            is_stale = if (deviceRecord.isStale) 1 else 0,
+//                            stale_since = deviceRecord.staleTransitionTimestamp,
+//                            active_session_id = deviceRecord.activeSession?.sessionId
+//                        )
+//                        println("Saved device record $deviceId for $userId")
+//                        (listOfNotNull(deviceRecord.activeSession) + deviceRecord.inactiveSessions).forEach { session ->
+//                            try {
+//                                queries.insertOrReplaceSession(
+//                                    session_id = session.sessionId,
+//                                    user_id = userId,
+//                                    device_id = deviceId,
+//                                    ratchet_state = session.ratchetState.toByteArray(),
+//                                    is_initiating = if (session.isInitiating) 1 else 0,
+//                                    timestamp = session.timestamp
+//                                )
+//                                println("Saved session ${session.sessionId} for device $deviceId of $userId")
+//                            } catch (e: Exception) {
+//                                println("Error saving session ${session.sessionId} for $userId/$deviceId: ${e.message}")
+//                            }
+//                        }
+//                    }
+//                }
+//            }
+//            println("Saved ${userRecords.size} user records")
+//        } catch (e: Exception) {
+//            println("Error saving user records: ${e.message}")
+//            throw Exception("Error saving user records: ${e.message}")
+//        }
+//    }
+
+    actual fun storeOrUpdateContactNickname(contactEmail: String, nickname: String?) {
+        if (contactEmail == currentUser) {
+            println("StoreOrUpdateContactNickname: Attempted to update self ($currentUser) as a contact.")
+            val currentRecord = queries.selectUserRecord(currentUser).executeAsOneOrNull()
+            if (currentRecord?.nickname != nickname) {
+                queries.insertOrReplaceUserRecord(
+                    user_id = currentUser,
+                    nickname = nickname.takeIf { !it.isNullOrBlank() },
+                    is_stale = currentRecord?.is_stale ?: 0,
+                    stale_since = currentRecord?.stale_since
+                )
+                println("Updated self-record nickname for $currentUser to '$nickname'")
+            }
+            return
+        }
+
+        database.transaction {
+            val existingRecord = queries.selectUserRecord(user_id = contactEmail).executeAsOneOrNull()
+            if (existingRecord != null) {
+                if (existingRecord.nickname != nickname && !nickname.isNullOrBlank()) {
+                    queries.updateUserRecordNickname(nickname = nickname, user_id = contactEmail)
+                    println("Updated nickname for contact $contactEmail to '$nickname' in $currentUser's DB.")
+                } else if (existingRecord.nickname != null && nickname.isNullOrBlank()) {
+                    queries.updateUserRecordNickname(nickname = null, user_id = contactEmail)
+                    println("Cleared nickname for contact $contactEmail in $currentUser's DB.")
+                }
+            } else {
+                queries.insertOrReplaceUserRecord(
+                    user_id = contactEmail,
+                    nickname = nickname.takeIf { !it.isNullOrBlank() },
+                    is_stale = 0,
+                    stale_since = null
+                )
+                println("Inserted new contact $contactEmail with nickname '$nickname' in $currentUser's DB.")
+            }
+        }
+    }
+
+    actual fun getContactNickname(contactEmail: String): String? {
+        if (contactEmail == currentUser) {
+            return queries.selectClientInfo(currentUser).executeAsOneOrNull()?.user_nickname
+                ?: queries.selectUserRecord(currentUser).executeAsOneOrNull()?.nickname
+        }
+        return queries.selectUserRecord(user_id = contactEmail).executeAsOneOrNull()?.nickname
+    }
+
     actual fun saveDeviceRecord(userEmail: String, nickname: String, record: DeviceRecord) {
         try {
             database.transaction {
@@ -221,6 +341,45 @@ actual class SessionStorage {
         }
     }
 
+//    actual fun saveDeviceRecord(userEmail: String, nickname: String, record: DeviceRecord) {
+//        try {
+//            database.transaction {
+//                storeOrUpdateContactNickname(userEmail, nickname)
+//                if (record.publicKey.isEmpty()) {
+//                    println("Skipping device record for $userEmail: Empty public key")
+//                    return@transaction
+//                }
+//                queries.insertOrReplaceDeviceRecord(
+//                    user_id = userEmail,
+//                    device_id = record.deviceId,
+//                    public_key = decodeIdentityKey(record.publicKey),
+//                    is_stale = if (record.isStale) 1 else 0,
+//                    stale_since = record.staleTransitionTimestamp,
+//                    active_session_id = record.activeSession?.sessionId
+//                )
+//                (listOfNotNull(record.activeSession) + record.inactiveSessions).forEach { session ->
+//                    try {
+//                        queries.insertOrReplaceSession(
+//                            session_id = session.sessionId,
+//                            user_id = userEmail,
+//                            device_id = record.deviceId,
+//                            ratchet_state = session.ratchetState.toByteArray(),
+//                            is_initiating = if (session.isInitiating) 1 else 0,
+//                            timestamp = session.timestamp
+//                        )
+//                        println("Saved session ${session.sessionId} for device ${record.deviceId} of $userEmail")
+//                    } catch (e: Exception) {
+//                        println("Error saving session ${session.sessionId} for $userEmail/${record.deviceId}: ${e.message}")
+//                    }
+//                }
+//                println("Saved device record ${record.deviceId} for $userEmail")
+//            }
+//        } catch (e: Exception) {
+//            println("Error saving device record for $userEmail: ${e.message}")
+//            throw Exception("Error saving device record for $userEmail: ${e.message}")
+//        }
+//    }
+
     actual fun loadUserEmail(userEmail: String): String {
         return queries.selectClientInfo(userEmail).executeAsOneOrNull()?.user_email
             ?: throw IllegalStateException("User not found: $userEmail")
@@ -238,6 +397,7 @@ actual class SessionStorage {
         println("Setting client info: userEmail=$userEmail, deviceId=$deviceId")
 
         queries.insertOrReplaceClientInfo(userEmail, userNickname, deviceId)
+        storeOrUpdateContactNickname(userEmail, userNickname)
     }
 
     actual fun getDevicePublicKey(userEmail: String): ByteArray? {
