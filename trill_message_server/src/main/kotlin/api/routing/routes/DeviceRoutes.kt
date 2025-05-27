@@ -20,6 +20,88 @@ fun Route.deviceRoutes() {
     val deviceRepository: DeviceRepository by inject()
     val userRepository: UserRepository by inject()
 
+    route("/devices") {
+        post {
+            val registerBundle = try {
+                call.receive<DeviceRegistrationBundle>()
+            } catch (e: Exception) {
+                call.application.environment.log.error("Invalid device registration request: {${e.message}}", e)
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    mapOf("error" to "Invalid or missing device registration data")
+                )
+                return@post
+            }
+            call.application.environment.log.info("Registering new device for email: {}", registerBundle.userEmail)
+
+
+            if (registerBundle.userEmail.isBlank() || registerBundle.onetimePreKeys.isEmpty() ||
+                registerBundle.identityKey.size != 32 || registerBundle.signedPreKey.size != 32 ||
+                registerBundle.preKeySignature.size != 64 || registerBundle.onetimePreKeys.any { it.size != 32 }
+            ) {
+                call.application.environment.log.warn(
+                    "Invalid device registration data for email: {}",
+                    registerBundle.userEmail
+                )
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    mapOf("error" to "Missing or invalid device registration fields")
+                )
+                return@post
+            }
+
+            val userId = userRepository.getIdByEmail(registerBundle.userEmail).fold(
+                onSuccess = { it },
+                onFailure = { e ->
+                    call.application.environment.log.warn(
+                        "User not found for email: {}. Error: {}",
+                        registerBundle.userEmail,
+                        e.message
+                    )
+                    call.respond(HttpStatusCode.NotFound, mapOf("error" to "User not found"))
+                    return@post
+                }
+            )
+
+            call.application.environment.log.info(
+                "Creating device with identity key {}",
+                registerBundle.identityKey.toString()
+            )
+
+            val deviceId = Base64.getEncoder().encodeToString(registerBundle.identityKey)
+            deviceRepository.create(
+                Device(
+                    userId = registerBundle.userEmail,
+                    identityKey = deviceId,
+                    signedPreKey = Base64.getEncoder().encodeToString(registerBundle.signedPreKey),
+                    preKeySignature = Base64.getEncoder().encodeToString(registerBundle.preKeySignature),
+                    onetimePreKeys = registerBundle.onetimePreKeys.map { Base64.getEncoder().encodeToString(it) },
+                    isPrimary = false,
+                    isOnline = false,
+                    lastOnline = GMTDate().toString()
+                )
+            ).fold(
+                onSuccess = { id ->
+                    call.application.environment.log.info(
+                        "Successfully created device with ID: {} for user ID: {}",
+                        id,
+                        userId
+                    )
+                    call.respond(HttpStatusCode.Created, mapOf("deviceId" to id))
+                },
+                onFailure = { e ->
+                    call.application.environment.log.error(
+                        "Failed to create device for user ID: {}. Error: {}",
+                        userId,
+                        e.message,
+                        e
+                    )
+                    call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to create device"))
+                }
+            )
+        }
+    }
+
     authenticate("auth-jwt") {
         route("/devices") {
             get("/all/keys") {
@@ -228,86 +310,6 @@ fun Route.deviceRoutes() {
                             e
                         )
                         call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to fetch devices"))
-                    }
-                )
-            }
-
-            post {
-                val registerBundle = try {
-                    call.receive<DeviceRegistrationBundle>()
-                } catch (e: Exception) {
-                    call.application.environment.log.error("Invalid device registration request: {${e.message}}", e)
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        mapOf("error" to "Invalid or missing device registration data")
-                    )
-                    return@post
-                }
-                call.application.environment.log.info("Registering new device for email: {}", registerBundle.userEmail)
-
-
-                if (registerBundle.userEmail.isBlank() || registerBundle.onetimePreKeys.isEmpty() ||
-                    registerBundle.identityKey.size != 32 || registerBundle.signedPreKey.size != 32 ||
-                    registerBundle.preKeySignature.size != 64 || registerBundle.onetimePreKeys.any { it.size != 32 }
-                ) {
-                    call.application.environment.log.warn(
-                        "Invalid device registration data for email: {}",
-                        registerBundle.userEmail
-                    )
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        mapOf("error" to "Missing or invalid device registration fields")
-                    )
-                    return@post
-                }
-
-                val userId = userRepository.getIdByEmail(registerBundle.userEmail).fold(
-                    onSuccess = { it },
-                    onFailure = { e ->
-                        call.application.environment.log.warn(
-                            "User not found for email: {}. Error: {}",
-                            registerBundle.userEmail,
-                            e.message
-                        )
-                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "User not found"))
-                        return@post
-                    }
-                )
-
-                call.application.environment.log.info(
-                    "Creating device with identity key {}",
-                    registerBundle.identityKey.toString()
-                )
-
-                val deviceId = Base64.getEncoder().encodeToString(registerBundle.identityKey)
-                deviceRepository.create(
-                    Device(
-                        userId = registerBundle.userEmail,
-                        identityKey = deviceId,
-                        signedPreKey = Base64.getEncoder().encodeToString(registerBundle.signedPreKey),
-                        preKeySignature = Base64.getEncoder().encodeToString(registerBundle.preKeySignature),
-                        onetimePreKeys = registerBundle.onetimePreKeys.map { Base64.getEncoder().encodeToString(it) },
-                        isPrimary = false,
-                        isOnline = false,
-                        lastOnline = GMTDate().toString()
-                    )
-                ).fold(
-                    onSuccess = { id ->
-                        call.application.environment.log.info(
-                            "Successfully created device with ID: {} for user ID: {}",
-                            id,
-                            userId
-                        )
-                        call.respond(HttpStatusCode.Created, mapOf("deviceId" to id))
-                    },
-                    onFailure = { e ->
-                        call.application.environment.log.error(
-                            "Failed to create device for user ID: {}. Error: {}",
-                            userId,
-                            e.message,
-                            e
-                        )
-                        call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to create device"))
                     }
                 )
             }

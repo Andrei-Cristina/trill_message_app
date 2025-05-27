@@ -67,14 +67,14 @@ actual class MessageClient actual constructor() {
             ?: throw IllegalStateException("SesameManager not initialized. No user active or setup failed.")
     }
 
-    actual suspend fun registerUser(email: String, nickname: String) {
+    actual suspend fun registerUser(email: String, password: String, nickname: String) {
         setActiveUser(email, isNewUser = true)
         val (_, ss, _) = getActiveComponents()
 
         ss.saveUserRecords(mutableMapOf(email to UserRecord(userId = email, nickname = nickname)))
         println("Local self-record created for $email in their DB.")
 
-        networkManager.registerUser(email, nickname)
+        networkManager.registerUser(email, password, nickname)
     }
 
     actual suspend fun registerDevice(email: String, nickname: String) {
@@ -129,7 +129,7 @@ actual class MessageClient actual constructor() {
                 println("Sent message saved locally for conversation between $activeUser and $recipientUserId.")
             } catch (e: Exception) {
                 println("Failed to send or save message from $activeUser to $recipientUserId: ${e.message}")
-                throw Exception("Message sending failed: ${e.message}", e) // Re-throw to signal failure
+                throw Exception("Message sending failed: ${e.message}", e)
             }
         }
     }
@@ -182,7 +182,7 @@ actual class MessageClient actual constructor() {
         }
     }
 
-    actual suspend fun loginUser(email: String): String {
+    actual suspend fun loginUser(email: String, password: String): String {
         println("Logging in user: $email")
         setActiveUser(email)
         val (activeUser, ss, _) = getActiveComponents()
@@ -193,7 +193,7 @@ actual class MessageClient actual constructor() {
         println("Attempting login for $activeUser with public key.")
         val nickname = getLocalUserNickname(email)
 
-        return networkManager.login(email, nickname!!, identityKeyForLogin)
+        return networkManager.login(email, password, nickname!!, identityKeyForLogin)
             ?: throw Exception("Login failed for $activeUser: Network authentication failed or device not recognized.")
     }
 

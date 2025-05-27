@@ -38,48 +38,27 @@ class NetworkManager {
     private val baseUrl = "http://0.0.0.0:8080"
     private var jwtToken: String? = null
 
-//    suspend fun login(
-//        userEmail: String,
-//        nickname: String,
-//        identityKey: ByteArray
-//    ): String? {
-//        val loginRequest = LoginRequest(
-//            email = userEmail,
-//            nickname = nickname,
-//            identityKey = identityKey
-//        )
-//
-//        val response = client.post("$baseUrl/login") {
-//            contentType(ContentType.Application.Json)
-//            setBody(loginRequest)
-//        }
-//
-//        return when (response.status) {
-//            HttpStatusCode.OK -> {
-//                val body = response.bodyAsText()
-//                Json.decodeFromString<Map<String, String>>(body)["deviceId"]
-//                    ?: throw Exception("Device ID not returned: $body")
-//            }
-//            HttpStatusCode.NotFound -> null
-//            HttpStatusCode.Unauthorized -> throw Exception("Invalid email or nickname: ${response.bodyAsText()}")
-//            else -> throw Exception("Unexpected response: ${response.status} - ${response.bodyAsText()}")
-//        }
-//    }
-
     suspend fun login(
         userEmail: String,
+        password: String,
         nickname: String,
         identityKey: ByteArray
     ): String? {
         val loginRequest = LoginRequest(
             email = userEmail,
+            password = password,
             nickname = nickname,
             identityKey = identityKey
         )
 
-        val response = client.post("$baseUrl/login") {
-            contentType(ContentType.Application.Json)
-            setBody(loginRequest)
+        val response = try {
+            client.post("$baseUrl/login") {
+                contentType(ContentType.Application.Json)
+                setBody(loginRequest)
+            }
+        } catch (e: Exception) {
+            println("Login network request failed for $userEmail: ${e.message}")
+            throw Exception("Login connection failed: ${e.message}", e)
         }
 
         return when (response.status) {
@@ -117,13 +96,37 @@ class NetworkManager {
         return jwtToken != null
     }
 
-    suspend fun registerUser(email: String, nickname: String) {
-        client.post("$baseUrl/users") {
-            contentType(ContentType.Application.Json)
-            setBody(RegisterUserRequest(
-                email = email,
-                nickname = nickname
-            ))
+    suspend fun registerUser(email: String, password: String, nickname: String) {
+        val response = try {
+            client.post("$baseUrl/users") {
+                contentType(ContentType.Application.Json)
+                setBody(RegisterUserRequest(
+                    email = email,
+                    password = password,
+                    nickname = nickname
+                ))
+            }
+        } catch (e: Exception) {
+            println("User registration network request failed for $email: ${e.message}")
+            throw Exception("Registration connection failed: ${e.message}", e)
+        }
+
+        when (response.status) {
+            HttpStatusCode.Created -> {
+                println("User $email registration successful. Status: ${response.status}")
+            }
+            HttpStatusCode.Conflict -> {
+                println("User registration failed for $email: Email already in use. Status: ${response.status}")
+                throw Exception("Email already registered.")
+            }
+            HttpStatusCode.BadRequest -> {
+                println("User registration failed for $email: Bad request. Status: ${response.status}")
+                throw Exception("Invalid registration data.")
+            }
+            else -> {
+                println("User registration failed for $email: Unexpected response - ${response.status} - ${response.bodyAsText()}")
+                throw Exception("Unexpected response: ${response.status} - ${response.bodyAsText()}")
+            }
         }
     }
 
@@ -138,7 +141,7 @@ class NetworkManager {
 
         val response: HttpResponse = client.post("$baseUrl/devices") {
             contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer $jwtToken")
+            //header(HttpHeaders.Authorization, "Bearer $jwtToken")
             setBody(bundle)
         }
 

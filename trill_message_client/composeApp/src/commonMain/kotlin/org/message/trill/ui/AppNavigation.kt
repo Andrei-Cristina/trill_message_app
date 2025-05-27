@@ -18,8 +18,8 @@ class LoginScreenHost(private val client: MessageClient) : Screen {
     override fun Content() {
         val navigator = LocalNavigator.currentOrThrow
         LoginScreen(
-            onLogin = { email ->
-                client.loginUser(email)
+            onLogin = { email, password ->
+                client.loginUser(email, password)
                 navigator.replaceAll(MainScreenHost(client, email))
             },
             onNavigateToRegister = {
@@ -34,10 +34,10 @@ class RegisterScreenHost(private val client: MessageClient) : Screen {
     override fun Content() {
         val navigator = LocalNavigator.currentOrThrow
         RegisterScreen(
-            onRegister = { email, nickname ->
-                client.registerUser(email, nickname)
-                client.loginUser(email)
+            onRegister = { email, password, nickname ->
+                client.registerUser(email, password, nickname)
                 client.registerDevice(email, nickname)
+                client.loginUser(email, password)
                 navigator.replaceAll(MainScreenHost(client, email))
             },
             onNavigateToLogin = {

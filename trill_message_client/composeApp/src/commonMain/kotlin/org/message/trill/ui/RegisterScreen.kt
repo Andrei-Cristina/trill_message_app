@@ -16,10 +16,11 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun RegisterScreen(
-    onRegister: suspend (email: String, nickname: String) -> Unit, // Made suspend
+    onRegister: suspend (email: String, password: String, nickname: String) -> Unit,
     onNavigateToLogin: () -> Unit
 ) {
     var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var nickname by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
@@ -48,6 +49,16 @@ fun RegisterScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         OutlinedTextField(
+            value = password,
+            onValueChange = { password = it.trim() },
+            label = { Text("Password") },
+            modifier = Modifier.fillMaxWidth(0.8f),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
             value = nickname,
             onValueChange = { nickname = it.trim() },
             label = { Text("Nickname") },
@@ -59,12 +70,12 @@ fun RegisterScreen(
 
         Button(
             onClick = {
-                if (email.isNotBlank() && nickname.isNotBlank()) {
+                if (email.isNotBlank() && password.isNotBlank() && nickname.isNotBlank()) {
                     isLoading = true
                     errorMessage = null
                     scope.launch {
                         try {
-                            onRegister(email, nickname)
+                            onRegister(email, password, nickname)
                         } catch (e: Exception) {
                             errorMessage = e.message ?: "Registration failed."
                         } finally {
@@ -72,10 +83,10 @@ fun RegisterScreen(
                         }
                     }
                 } else {
-                    errorMessage = "Email and Nickname cannot be empty."
+                    errorMessage = "Email/Password/Nickname cannot be empty."
                 }
             },
-            enabled = email.isNotBlank() && nickname.isNotBlank() && !isLoading,
+            enabled = email.isNotBlank() && password.isNotBlank() && nickname.isNotBlank() && !isLoading,
             modifier = Modifier.fillMaxWidth(0.8f)
         ) {
             if (isLoading) {

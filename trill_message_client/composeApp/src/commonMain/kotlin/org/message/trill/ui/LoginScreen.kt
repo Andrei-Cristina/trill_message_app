@@ -11,13 +11,15 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import javax.swing.text.PasswordView
 
 @Composable
 fun LoginScreen(
-    onLogin: suspend (email: String) -> Unit,
+    onLogin: suspend (email: String, password: String) -> Unit,
     onNavigateToRegister: () -> Unit
 ) {
     var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -44,6 +46,16 @@ fun LoginScreen(
         )
         Spacer(modifier = Modifier.height(16.dp))
 
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it.trim() },
+            label = { Text("Password") },
+            modifier = Modifier.fillMaxWidth(0.8f),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
         Button(
             onClick = {
                 if (email.isNotBlank()) {
@@ -51,7 +63,7 @@ fun LoginScreen(
                     errorMessage = null
                     scope.launch {
                         try {
-                            onLogin(email)
+                            onLogin(email, password)
                         } catch (e: Exception) {
                             errorMessage = e.message ?: "Login failed."
                         } finally {
@@ -62,7 +74,7 @@ fun LoginScreen(
                     errorMessage = "Email cannot be empty."
                 }
             },
-            enabled = email.isNotBlank() && !isLoading,
+            enabled = email.isNotBlank() && password.isNotBlank() && !isLoading,
             modifier = Modifier.fillMaxWidth(0.8f)
         ) {
             if (isLoading) {

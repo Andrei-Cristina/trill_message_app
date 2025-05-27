@@ -6,6 +6,7 @@ import com.mongodb.client.model.Filters
 import com.mongodb.client.model.FindOneAndUpdateOptions
 import com.mongodb.client.model.ReturnDocument
 import data.models.User
+import data.models.UserModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -28,36 +29,40 @@ class UserRepository : KoinComponent {
         collection = database.getCollection("users")
     }
 
-    suspend fun create(item: User): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun create(item: UserModel): Result<String> = withContext(Dispatchers.IO) {
         kotlin.runCatching {
+            if (item.password.isBlank()) {
+                throw IllegalArgumentException("User password hash cannot be null or blank for database persistence.")
+            }
+
             val doc = item.toDocument()
             collection.insertOne(doc)
             doc["_id"].toString()
         }
     }
 
-    suspend fun getAll(): Result<List<User>> = withContext(Dispatchers.IO) {
+    suspend fun getAll(): Result<List<UserModel>> = withContext(Dispatchers.IO) {
         kotlin.runCatching {
-            collection.find().map { document -> User.fromDocument(document) }.toList()
+            collection.find().map { document -> UserModel.fromDocument(document) }.toList()
         }
     }
 
-    suspend fun getById(id: String): Result<User> = withContext(Dispatchers.IO) {
+    suspend fun getById(id: String): Result<UserModel> = withContext(Dispatchers.IO) {
         kotlin.runCatching {
             collection.find(Filters.eq("_id", ObjectId(id)))
                 .first()
                 ?.let { document ->
-                    json.decodeFromString<User>(document.toJson())
+                    json.decodeFromString<UserModel>(document.toJson())
                 } ?: throw NoSuchElementException("User with id $id not found")
         }
     }
 
-    suspend fun getByEmail(email: String): Result<User> = withContext(Dispatchers.IO) {
+    suspend fun getByEmail(email: String): Result<UserModel> = withContext(Dispatchers.IO) {
         kotlin.runCatching {
             collection.find(Filters.eq("email", email))
                 .first()
                 ?.let { document ->
-                    json.decodeFromString<User>(document.toJson())
+                    json.decodeFromString<UserModel>(document.toJson())
                 } ?: throw NoSuchElementException("User with email $email not found")
         }
     }
@@ -72,18 +77,18 @@ class UserRepository : KoinComponent {
         }
     }
 
-    suspend fun getByNickName(nickname: String): Result<List<User>> = withContext(Dispatchers.IO) {
+    suspend fun getByNickName(nickname: String): Result<List<UserModel>> = withContext(Dispatchers.IO) {
         runCatching {
             val regex = Pattern.compile(".*${Pattern.quote(nickname)}.*", Pattern.CASE_INSENSITIVE)
             collection.find(Filters.regex("nickname", regex))
                 .map { document ->
-                    json.decodeFromString<User>(document.toJson())
+                    json.decodeFromString<UserModel>(document.toJson())
                 }
                 .toList()
         }
     }
 
-    suspend fun update(id: String, item: User): Result<Document?> = withContext(Dispatchers.IO) {
+    suspend fun update(id: String, item: UserModel): Result<Document?> = withContext(Dispatchers.IO) {
         kotlin.runCatching {
             collection.findOneAndUpdate(
                 Filters.eq("_id", ObjectId(id)),

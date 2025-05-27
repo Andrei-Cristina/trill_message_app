@@ -38,6 +38,9 @@ dependencies {
     implementation("io.ktor:ktor-server-call-logging:$ktor_version")
     implementation("io.ktor:ktor-server-swagger:$ktor_version")
 
+    //bcrypt for password hashing
+    implementation("org.mindrot:jbcrypt:0.4")
+
     // JWt dependencies
     implementation("io.ktor:ktor-server-auth:$ktor_version")
     implementation("io.ktor:ktor-server-auth-jwt:$ktor_version")
@@ -60,7 +63,7 @@ dependencies {
     implementation("ch.qos.logback:logback-classic:$logback_version")
 
     // Serialization
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3") // Match Ktor 2.3.12 recommendation
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
     // Testing
     testImplementation("io.ktor:ktor-server-test-host:$ktor_version")

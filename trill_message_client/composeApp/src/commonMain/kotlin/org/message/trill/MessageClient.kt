@@ -6,8 +6,8 @@ import org.message.trill.ui.ConversationMessage
 
 expect class MessageClient() {
     suspend fun userLogOut()
-    suspend fun loginUser(email:String):String
-    suspend fun registerUser(email:String, nickname: String)
+    suspend fun loginUser(email:String, password: String):String
+    suspend fun registerUser(email:String, password: String, nickname: String)
     suspend fun registerDevice(email: String, nickname: String)
     suspend fun sendMessage(senderId: String, recipientUserId: String, plaintext: String)
     suspend fun receiveMessages(email:String): List<ReceivedMessage>
