@@ -36,6 +36,35 @@ class NetworkManager {
         }
     }
     private val baseUrl = "http://0.0.0.0:8080"
+    private var jwtToken: String? = null
+
+//    suspend fun login(
+//        userEmail: String,
+//        nickname: String,
+//        identityKey: ByteArray
+//    ): String? {
+//        val loginRequest = LoginRequest(
+//            email = userEmail,
+//            nickname = nickname,
+//            identityKey = identityKey
+//        )
+//
+//        val response = client.post("$baseUrl/login") {
+//            contentType(ContentType.Application.Json)
+//            setBody(loginRequest)
+//        }
+//
+//        return when (response.status) {
+//            HttpStatusCode.OK -> {
+//                val body = response.bodyAsText()
+//                Json.decodeFromString<Map<String, String>>(body)["deviceId"]
+//                    ?: throw Exception("Device ID not returned: $body")
+//            }
+//            HttpStatusCode.NotFound -> null
+//            HttpStatusCode.Unauthorized -> throw Exception("Invalid email or nickname: ${response.bodyAsText()}")
+//            else -> throw Exception("Unexpected response: ${response.status} - ${response.bodyAsText()}")
+//        }
+//    }
 
     suspend fun login(
         userEmail: String,
@@ -56,13 +85,36 @@ class NetworkManager {
         return when (response.status) {
             HttpStatusCode.OK -> {
                 val body = response.bodyAsText()
-                Json.decodeFromString<Map<String, String>>(body)["deviceId"]
+                val jsonResponse = Json.decodeFromString<Map<String, String>>(body)
+                this.jwtToken = jsonResponse["token"]
+                if (this.jwtToken == null) {
+                    throw Exception("JWT token not returned from login: $body")
+                }
+                jsonResponse["deviceId"]
                     ?: throw Exception("Device ID not returned: $body")
             }
-            HttpStatusCode.NotFound -> null
-            HttpStatusCode.Unauthorized -> throw Exception("Invalid email or nickname: ${response.bodyAsText()}")
-            else -> throw Exception("Unexpected response: ${response.status} - ${response.bodyAsText()}")
+            HttpStatusCode.NotFound -> {
+                println("Login failed: User or device not found - ${response.bodyAsText()}")
+                null
+            }
+            HttpStatusCode.Unauthorized -> {
+                println("Login failed: Unauthorized - ${response.bodyAsText()}")
+                throw Exception("Invalid email or credentials: ${response.bodyAsText()}")
+            }
+            else -> {
+                println("Login failed: Unexpected response - ${response.status} - ${response.bodyAsText()}")
+                throw Exception("Unexpected response: ${response.status} - ${response.bodyAsText()}")
+            }
         }
+    }
+
+    fun logout() {
+        println("Logging out user")
+        jwtToken = null
+    }
+
+    fun isAuthenticated(): Boolean {
+        return jwtToken != null
     }
 
     suspend fun registerUser(email: String, nickname: String) {
@@ -86,6 +138,7 @@ class NetworkManager {
 
         val response: HttpResponse = client.post("$baseUrl/devices") {
             contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer $jwtToken")
             setBody(bundle)
         }
 
@@ -107,6 +160,7 @@ class NetworkManager {
     suspend fun fetchPrekeyBundle(userId: String, deviceId: String): PrekeyBundle {
         val response = client.get("$baseUrl/devices/keys") {
             contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer $jwtToken")
             setBody(userId)
         }
 
@@ -118,6 +172,7 @@ class NetworkManager {
     suspend fun fetchUserDevices(userId: String): Map<String, ByteArray> {
         val response = client.get("$baseUrl/devices/all/keys") {
             contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer $jwtToken")
             setBody(userId)
         }
         val bundles = Json.decodeFromString<List<PrekeyBundle>>(response.bodyAsText())
@@ -132,6 +187,7 @@ class NetworkManager {
         println("Sending messages")
         val response = client.post("$baseUrl/messages") {
             contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer $jwtToken")
             setBody(mapOf(
                 "messages" to messages.map { message ->
                     mapOf(
@@ -143,6 +199,11 @@ class NetworkManager {
         return when (response.status) {
             HttpStatusCode.OK -> NetworkResponse.Success
             HttpStatusCode.NotFound -> NetworkResponse.UserNotFound
+            HttpStatusCode.Unauthorized -> {
+                println("Unauthorized to send messages. Token might be invalid or expired.")
+                logout()
+                throw Exception("Unauthorized: Token invalid or expired")
+            }
             HttpStatusCode.Conflict -> {
                 val data = Json.decodeFromString<Map<String, Any>>(response.bodyAsText())
                 NetworkResponse.DeviceMismatch(
@@ -155,16 +216,19 @@ class NetworkManager {
     }
 
     suspend fun fetchMessages(userId: String, deviceId: String): List<Message> {
-        val encodedUserId = withContext(Dispatchers.IO) {
-            URLEncoder.encode(userId, "UTF-8")
+        if (jwtToken == null) {
+            println("Not authenticated, cannot fetch messages.")
+            return emptyList()
         }
+
         val encodedDeviceId = withContext(Dispatchers.IO) {
             URLEncoder.encode(deviceId, "UTF-8")
         }
-        println("Fetching messages for $userId/$deviceId")
+        println("Fetching messages for $userId/$deviceId with token $jwtToken")
         try {
-            val response = client.get("$baseUrl/messages/$encodedUserId/$encodedDeviceId") {
+            val response = client.get("$baseUrl/messages/$encodedDeviceId") {
                 contentType(ContentType.Application.Json)
+                header(HttpHeaders.Authorization, "Bearer $jwtToken")
             }
             println("Fetch messages response: ${response.status}, body: ${response.bodyAsText()}")
             return when (response.status) {
@@ -176,6 +240,11 @@ class NetworkManager {
                     } else {
                         Json.decodeFromString<List<Message>>(body)
                     }
+                }
+                HttpStatusCode.Unauthorized -> {
+                    println("Unauthorized to fetch messages. Token might be invalid or expired.")
+                    logout()
+                    emptyList()
                 }
                 HttpStatusCode.NotFound -> {
                     println("No messages or user/device not found for $userId/$encodedDeviceId")
@@ -240,6 +309,7 @@ class NetworkManager {
         try {
             val response = client.post("$baseUrl/users/search") {
                 contentType(ContentType.Application.Json)
+                header(HttpHeaders.Authorization, "Bearer $jwtToken")
                 setBody(EmailSearchRequest(email))
             }
             val body = response.bodyAsText()

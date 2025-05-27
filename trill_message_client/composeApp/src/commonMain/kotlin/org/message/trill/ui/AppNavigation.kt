@@ -36,8 +36,8 @@ class RegisterScreenHost(private val client: MessageClient) : Screen {
         RegisterScreen(
             onRegister = { email, nickname ->
                 client.registerUser(email, nickname)
-                client.registerDevice(email, nickname)
                 client.loginUser(email)
+                client.registerDevice(email, nickname)
                 navigator.replaceAll(MainScreenHost(client, email))
             },
             onNavigateToLogin = {

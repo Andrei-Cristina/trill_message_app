@@ -1,5 +1,7 @@
 package api.routing.routes
 
+import com.auth0.jwt.JWT
+import com.auth0.jwt.algorithms.Algorithm
 import data.models.EmailSearchRequest
 import data.models.LoginRequest
 import data.models.User
@@ -13,10 +15,16 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.util.date.*
 import org.koin.ktor.ext.inject
+import java.util.*
 
 fun Route.userRoutes() {
     val userRepository: UserRepository by application.inject()
     val deviceRepository: DeviceRepository by application.inject()
+
+    val jwtSecret = application.environment.config.property("jwt.secret").getString()
+    val jwtIssuer = application.environment.config.property("jwt.issuer").getString()
+    val jwtAudience = application.environment.config.property("jwt.audience").getString()
+    val jwtExpirationTime = application.environment.config.property("jwt.expirationTime").getString().toLong()
 
     route("/login") {
         post {
@@ -48,8 +56,15 @@ fun Route.userRoutes() {
                 }
             )
 
+            val token = JWT.create()
+                .withAudience(jwtAudience)
+                .withIssuer(jwtIssuer)
+                .withClaim("userEmail", loginRequest.email)
+                .withExpiresAt(Date(System.currentTimeMillis() + jwtExpirationTime))
+                .sign(Algorithm.HMAC256(jwtSecret))
+
             call.application.environment.log.info("Successfully logged in user with email: ${loginRequest.email}, deviceId: $deviceId")
-            call.respond(HttpStatusCode.OK, mapOf("deviceId" to deviceId.toString()))
+            call.respond(HttpStatusCode.OK, mapOf("token" to token, "deviceId" to deviceId))
         }
     }
 
