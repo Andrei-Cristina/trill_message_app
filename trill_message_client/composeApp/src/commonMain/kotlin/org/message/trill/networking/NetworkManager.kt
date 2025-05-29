@@ -2,6 +2,7 @@ package org.message.trill.networking
 
 import io.ktor.client.*
 import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -9,8 +10,12 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import io.ktor.websocket.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.ClosedReceiveChannelException
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.serialization.json.Json
 import org.message.trill.encryption.keys.PreKey
 import org.message.trill.encryption.keys.PrekeyBundle
@@ -21,22 +26,34 @@ import org.message.trill.networking.models.DeviceRegistrationBundle
 import org.message.trill.networking.models.EmailSearchRequest
 import org.message.trill.networking.models.LoginRequest
 import org.message.trill.networking.models.RegisterUserRequest
-import org.slf4j.LoggerFactory
 import java.net.URLEncoder
 import java.util.*
 
 class NetworkManager {
+    private val clientJson = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        prettyPrint = true
+    }
     private val client = HttpClient {
         install(ContentNegotiation) {
-            json(Json {
-                ignoreUnknownKeys = true
-                isLenient = true
-                prettyPrint = true
-            })
+            json(clientJson)
         }
+        install(WebSockets)
     }
+
     private val baseUrl = "http://0.0.0.0:8080"
+    private val wsBaseUrl = "ws://0.0.0.0:8080"
+
     private var jwtToken: String? = null
+    private var currentDeviceId: String? = null
+
+    @Volatile
+    private var webSocketSession: ClientWebSocketSession? = null
+    private val networkManagerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    private val _incomingMessagesFlow = MutableSharedFlow<Message>()
+    val incomingMessagesFlow: SharedFlow<Message> = _incomingMessagesFlow.asSharedFlow()
 
     suspend fun login(
         userEmail: String,
@@ -69,6 +86,14 @@ class NetworkManager {
                 if (this.jwtToken == null) {
                     throw Exception("JWT token not returned from login: $body")
                 }
+                this.currentDeviceId = identityKey.encodeToBase64()
+
+                this.jwtToken?.let { token ->
+                    this.currentDeviceId?.let { devId ->
+                        connectWebSocket(token, devId)
+                    }
+                }
+
                 jsonResponse["deviceId"]
                     ?: throw Exception("Device ID not returned: $body")
             }
@@ -89,11 +114,124 @@ class NetworkManager {
 
     fun logout() {
         println("Logging out user")
+        disconnectWebSocket()
         jwtToken = null
+        currentDeviceId = null
     }
 
     fun isAuthenticated(): Boolean {
         return jwtToken != null
+    }
+
+    private fun connectWebSocket(token: String, deviceId: String) {
+        if (webSocketSession?.isActive == true) {
+            println("WebSocket is already connected or connecting for device $deviceId.")
+            return
+        }
+        println("Attempting to connect WebSocket for device: $deviceId with token: $token")
+        networkManagerScope.launch {
+            try {
+                client.webSocket(
+                    method = HttpMethod.Get,
+                    host = "0.0.0.0",
+                    port = 8080,
+                    path = "/ws/chat?token=${token.encodeURLParameter()}&deviceId=${deviceId.encodeURLParameter()}"
+                ) {
+                    webSocketSession = this
+
+                    println("WebSocket connection established for device: $deviceId.")
+
+                    launch {
+                        try {
+                            for (frame in incoming) {
+                                if (frame is Frame.Text) {
+                                    val text = frame.readText()
+                                    println("WebSocket received text: $text")
+                                    try {
+                                        val message = clientJson.decodeFromString<Message>(text)
+                                        _incomingMessagesFlow.emit(message)
+                                    } catch (e: Exception) {
+                                        try {
+                                            val errorResponse = clientJson.decodeFromString<Map<String, String>>(text)
+                                            if (errorResponse.containsKey("error")) {
+                                                println("Server responded with error via WebSocket: ${errorResponse["error"]}")
+                                            } else {
+                                                println("Error deserializing non-error message from WebSocket: ${e.message} for text: $text")
+                                            }
+                                        } catch (e2: Exception) {
+                                            println("Error deserializing message AND error response from WebSocket: Primary error: ${e.message}, Secondary error: ${e2.message} for text: $text")
+                                        }
+                                    }
+                                } else if (frame is Frame.Close) {
+                                    println("WebSocket connection closed by server: ${frame.readReason()}")
+                                    break
+                                }
+                            }
+                        } catch (e: ClosedReceiveChannelException) {
+                            println("WebSocket incoming channel closed for device $deviceId: ${e.message}")
+                        } catch (e: CancellationException) {
+                            println("WebSocket incoming message listener cancelled for $deviceId.")
+                            throw e
+                        } catch (e: Exception) {
+                            println("Error in WebSocket incoming message listener for $deviceId: ${e.message}")
+                        } finally {
+                            println("WebSocket incoming listener finished for $deviceId.")
+                        }
+                    }
+
+                    val reason = closeReason.await()
+                    println("WebSocket session $deviceId completed with reason: $reason")
+                }
+            } catch (e: CancellationException) {
+                println("WebSocket connection coroutine cancelled for device $deviceId.")
+            } catch (e: Exception) {
+                println("WebSocket connection failed or unhandled error for device $deviceId: ${e.javaClass.simpleName} - ${e.message}")
+            } finally {
+                println("Outer WebSocket session block finished for device $deviceId. Cleaning up.")
+                if (webSocketSession?.coroutineContext?.isActive == true) {
+                    try {
+                        webSocketSession?.close(CloseReason(CloseReason.Codes.GOING_AWAY, "Client-side cleanup"))
+                    } catch (ignore: Exception) {}
+                }
+                webSocketSession = null
+            }
+        }
+    }
+
+    private fun disconnectWebSocket() {
+        println("Attempting to disconnect WebSocket.")
+        val sessionToClose = webSocketSession
+        webSocketSession = null
+        networkManagerScope.launch {
+            try {
+                sessionToClose?.close(CloseReason(CloseReason.Codes.NORMAL, "Client logging out"))
+                println("WebSocket disconnected initiated.")
+            } catch (e: Exception) {
+                println("Error during WebSocket disconnection: ${e.message}")
+            }
+        }
+    }
+
+    suspend fun sendMessagesViaWebSocket(messages: List<Message>): Boolean {
+        val currentSession = webSocketSession
+        if (currentSession == null || !currentSession.isActive) {
+            println("Cannot send messages: WebSocket session is not active.")
+            return false
+        }
+
+        println("Sending ${messages.size} messages via WebSocket.")
+        var allSentSuccessfully = true
+        for (message in messages) {
+            try {
+                val messageJson = clientJson.encodeToString(message)
+                currentSession.send(Frame.Text(messageJson))
+                println("Sent message to ${message.recipientId} via WebSocket.")
+            } catch (e: Exception) {
+                println("Error sending message to ${message.recipientId} via WebSocket: ${e.message}")
+                allSentSuccessfully = false
+            }
+        }
+        return allSentSuccessfully
     }
 
     suspend fun registerUser(email: String, password: String, nickname: String) {
@@ -263,50 +401,6 @@ class NetworkManager {
             return emptyList()
         }
     }
-
-
-//    suspend fun searchUsersByEmail(email: String): List<User> {
-//        try {
-//            val response = client.post("$baseUrl/users/search") {
-//                contentType(ContentType.Application.Json)
-//                setBody(EmailSearchRequest(email))
-//            }
-//            val body = response.bodyAsText()
-//            println("Search users response: status=${response.status}, body=$body")
-//
-//            return when (response.status) {
-//                HttpStatusCode.OK -> {
-//                    if (body.isEmpty() || body == "[]") {
-//                        println("Empty search results for email: $email")
-//                        emptyList()
-//                    } else {
-//                        try {
-//                            val user = Json.decodeFromString<User>(body)
-//                            listOf(user)
-//                        } catch (e: Exception) {
-//                            try {
-//                                Json.decodeFromString<List<User>>(body)
-//                            } catch (e2: Exception) {
-//                                println("Failed to parse search response: $body, $e2")
-//                                emptyList()
-//                            }
-//                        }
-//                    }
-//                }
-//                HttpStatusCode.NotFound -> {
-//                    println("No users found for email: $email")
-//                    emptyList()
-//                }
-//                else -> {
-//                    println("Unexpected response for search: ${response.status}, body=$body")
-//                    emptyList()
-//                }
-//            }
-//        } catch (e: Exception) {
-//            println("Error during searchUsersByEmail: $email, $e")
-//            return emptyList()
-//        }
-//    }
 
     suspend fun searchUsersByEmail(email: String): List<User> {
         try {

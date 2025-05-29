@@ -3,6 +3,7 @@ package org.message.trill.session.storage
 import org.message.trill.encryption.keys.IdentityKey
 import org.message.trill.encryption.keys.PreKey
 import org.message.trill.encryption.keys.SignedPreKey
+import org.message.trill.encryption.utils.models.DebugInfo
 import org.message.trill.messaging.models.LocalDbMessage
 import org.message.trill.session.sesame.DeviceRecord
 import org.message.trill.session.sesame.UserRecord
@@ -37,7 +38,10 @@ expect class SessionStorage {
     fun getDevicePublicKey(userEmail: String): ByteArray?
     fun listClientInfos(): List<Triple<String, String?, String>>
 
-    fun saveMessage(senderEmail: String, receiverEmail: String, content: String, timestamp: Long, isSentByLocalUser: Boolean)
+    fun saveMessage(senderEmail: String, receiverEmail: String, content: String, timestamp: Long, isSentByLocalUser: Boolean): String
     fun loadMessagesForConversation(currentUserEmail: String, contactEmail: String): List<LocalDbMessage>
     fun getRecentConversationPartners(currentUserEmail: String): List<String>
+
+    fun saveDebugData(messageId: Long, debugInfo: DebugInfo)
+    suspend fun loadDebugData(messageId: Long): DebugInfo?
 }

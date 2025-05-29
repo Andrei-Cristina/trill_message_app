@@ -59,7 +59,14 @@ class DoubleRatchet(
         state.ckr = ck
         state.nr++
 
-        val fullAd = ad + message.header.toByteArray()
+        val headerForAdCalculation = Header(
+            dh = message.header.dh,
+            pn = message.header.pn,
+            n = message.header.n
+        )
+        val fullAd = ad + headerForAdCalculation.toByteArray()
+//        val fullAd = ad + message.header.toByteArray()
+
         println("DoubleRatchet.decrypt: full associated data=${fullAd.encodeToBase64()}")
 
         val plaintext = EncryptionUtils.decrypt(mk, message.ciphertext, fullAd)

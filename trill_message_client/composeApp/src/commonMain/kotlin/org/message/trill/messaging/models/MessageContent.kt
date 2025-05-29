@@ -3,24 +3,6 @@ package org.message.trill.messaging.models
 import kotlinx.serialization.Serializable
 
 
-//@Serializable
-//sealed class MessageContent {
-//    abstract val ciphertext: ByteArray
-//
-//    @Serializable
-//    data class InitialMessage(
-//        val senderIdentityKey: ByteArray,
-//        val ephemeralKey: ByteArray,
-//        override val ciphertext: ByteArray
-//    ) : MessageContent()
-//
-//    @Serializable
-//    data class RegularMessage(
-//        val header: Header,
-//        override val ciphertext: ByteArray
-//    ) : MessageContent()
-//}
-
 @Serializable
 data class MessageContent(
     val header: Header,

@@ -1,7 +1,7 @@
 package org.message.trill
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
 import kotlinx.datetime.Clock
 import org.message.trill.encryption.keys.KeyManager
 import org.message.trill.messaging.models.ReceivedMessage
@@ -23,9 +23,77 @@ actual class MessageClient actual constructor() {
 
     private val networkManager = NetworkManager()
 
+    private var messageClientScope: CoroutineScope? = null
+    private val _newMessageForUiFlow = MutableSharedFlow<ReceivedMessage>(replay = 0, extraBufferCapacity = 64)
+    actual val newMessageForUiFlow: SharedFlow<ReceivedMessage> = _newMessageForUiFlow.asSharedFlow()
+
+    private fun startObservingIncomingMessages() {
+        messageClientScope?.cancel()
+        messageClientScope = CoroutineScope(Dispatchers.Default + SupervisorJob() + CoroutineName("MessageClientObserver"))
+
+        networkManager.incomingMessagesFlow
+            .onEach { networkMessage ->
+                println("MessageClient observed incoming WebSocket message for recipient: ${networkMessage.recipientId}")
+
+                val activeUser = currentLoggedInUserEmail
+                val currentSS = sessionStorage
+                val currentSM = sesameManager
+
+                if (activeUser == null || currentSS == null || currentSM == null) {
+                    println("WebSocket message received, but MessageClient not fully initialized for user $activeUser. Ignoring.")
+                    return@onEach
+                }
+
+                if (activeUser != networkMessage.recipientId) {
+                    println("WebSocket message recipient ${networkMessage.recipientId} does not match active user $activeUser. Ignoring.")
+                    return@onEach
+                }
+
+                try {
+                    println("Processing WebSocket message from ${networkMessage.senderId} for $activeUser")
+                    val plaintext = currentSM.receiveMessage(networkMessage)
+                    val receivedMsg = ReceivedMessage(
+                        senderId = networkMessage.senderId,
+                        content = plaintext,
+                        timestamp = networkMessage.timestamp
+                    )
+
+                    val timestampMillis = networkMessage.timestamp.toLongOrNull() ?: Clock.System.now().toEpochMilliseconds()
+                    currentSS.saveMessage(
+                        senderEmail = receivedMsg.senderId,
+                        receiverEmail = activeUser,
+                        content = plaintext,
+                        timestamp = timestampMillis,
+                        isSentByLocalUser = false
+                    )
+                    println("Received, decrypted, and saved message from ${receivedMsg.senderId} via WebSocket for $activeUser.")
+
+                    _newMessageForUiFlow.tryEmit(receivedMsg)
+
+                } catch (e: Exception) {
+                    println("Failed to process/decrypt or save WebSocket message for $activeUser from ${networkMessage.senderId}: ${e.message}")
+                }
+            }
+            .catch { e ->
+                println("Error in MessageClient's incomingMessagesFlow collection: ${e.message}")
+            }
+            .launchIn(messageClientScope!!)
+        println("MessageClient started observing incoming WebSocket messages.")
+    }
+
+    private fun stopObservingIncomingMessages() {
+        println("MessageClient stopping observation of incoming WebSocket messages.")
+        messageClientScope?.cancel()
+        messageClientScope = null
+    }
+
     suspend fun setActiveUser(email: String, isNewUser: Boolean = false) {
         if (currentLoggedInUserEmail == email && sessionStorage != null && !isNewUser) {
             println("User $email is already active.")
+            if (messageClientScope == null || messageClientScope?.isActive == false) {
+                startObservingIncomingMessages()
+            }
+
             return
         }
         if (currentLoggedInUserEmail != null && currentLoggedInUserEmail != email) {
@@ -40,10 +108,13 @@ actual class MessageClient actual constructor() {
         this.keyManager = KeyManager(ss)
         this.sesameManager = SesameManager(this.keyManager!!, networkManager, ss)
         println("MessageClient initialized for user: $email")
+
+        startObservingIncomingMessages()
     }
 
     actual suspend fun userLogOut() {
         println("Logging out user: $currentLoggedInUserEmail")
+        stopObservingIncomingMessages()
         networkManager.logout()
         currentLoggedInUserEmail = null
         sessionStorage = null
@@ -52,7 +123,6 @@ actual class MessageClient actual constructor() {
     }
 
     private fun getActiveComponents(): Triple<String, SessionStorage, KeyManager> {
-        println("Current logged in user: $currentLoggedInUserEmail")
         val email = currentLoggedInUserEmail
             ?: throw IllegalStateException("No user is active. Call setActiveUser first.")
         val ss = sessionStorage

@@ -3,11 +3,14 @@ package org.message.trill.session.storage
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import com.message.trill.db.TrillMessageDatabaseQueries
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.message.trill.db.TrillMessageDatabase
 import org.message.trill.encryption.double_ratchet.RatchetState
 import org.message.trill.encryption.keys.IdentityKey
 import org.message.trill.encryption.keys.PreKey
 import org.message.trill.encryption.keys.SignedPreKey
+import org.message.trill.encryption.utils.models.DebugInfo
 import org.message.trill.messaging.models.LocalDbMessage
 import org.message.trill.session.sesame.DeviceRecord
 import org.message.trill.session.sesame.Session
@@ -354,7 +357,7 @@ actual class SessionStorage(private val currentUser: String) {
         }
     }
 
-    actual fun saveMessage(senderEmail: String, receiverEmail: String, content: String, timestamp: Long, isSentByLocalUser: Boolean) {
+    actual fun saveMessage(senderEmail: String, receiverEmail: String, content: String, timestamp: Long, isSentByLocalUser: Boolean): String {
         queries.insertMessage(
             sender_email = senderEmail,
             receiver_email = receiverEmail,
@@ -362,6 +365,10 @@ actual class SessionStorage(private val currentUser: String) {
             timestamp = timestamp,
             is_sent_by_local_user = if (isSentByLocalUser) 1L else 0L
         )
+
+        return queries.internalLastInsertRowId()
+            .executeAsOne()
+            .toString()
     }
 
     actual fun loadMessagesForConversation(currentUserEmail: String, contactEmail: String): List<LocalDbMessage> {
@@ -383,6 +390,37 @@ actual class SessionStorage(private val currentUser: String) {
         return queries.getRecentConversations(current_user_email = currentUserEmail)
             .executeAsList()
             .map { it.contact_email }
+    }
+
+    actual fun saveDebugData(messageId: Long, debugInfo: DebugInfo) {
+        queries.insertDebugData(
+            messageId = messageId,
+            messageKey = debugInfo.messageKey,
+            headerDh = debugInfo.headerDh,
+            headerPn = debugInfo.headerPn?.toLong(),
+            headerN = debugInfo.headerN?.toLong(),
+            fullAd = debugInfo.fullAd,
+            ciphertext = debugInfo.ciphertext,
+            rootKey = debugInfo.rootKey,
+            receiveChainKey = debugInfo.receiveChainKey,
+            sendChainKey = debugInfo.sendChainKey
+        )
+    }
+
+    actual suspend fun loadDebugData(messageId: Long): DebugInfo? = withContext(Dispatchers.IO) {
+        queries.selectDebugData(messageId).executeAsOneOrNull()?.let { row ->
+            DebugInfo(
+                messageKey = row.message_key,
+                headerDh = row.header_dh,
+                headerPn = row.header_pn?.toInt(),
+                headerN = row.header_n?.toInt(),
+                fullAd = row.full_ad!!,
+                ciphertext = row.ciphertext!!,
+                rootKey = row.root_key!!,
+                receiveChainKey = row.receive_chain_key,
+                sendChainKey = row.send_chain_key
+            )
+        }
     }
 
     private fun ByteArray.encodeToBase64(): String = Base64.getEncoder().encodeToString(this)

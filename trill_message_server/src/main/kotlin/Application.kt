@@ -1,5 +1,7 @@
 import api.routing.configureRouting
+import api.websocket.WebSocketHandler
 import api.websocket.configureSockets
+import api.websocket.routes.configureWebSocketRouting
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import data.connectToMongoDB
@@ -8,11 +10,13 @@ import data.repositories.DeviceRepository
 import data.repositories.MessageRepository
 import data.repositories.UserRepository
 import io.ktor.http.*
+import io.ktor.http.auth.*
 import utils.AuthUtils
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
 import io.ktor.server.auth.jwt.*
 import io.ktor.server.response.*
+import kotlinx.serialization.json.Json
 import org.koin.dsl.module
 import org.koin.ktor.plugin.Koin
 import org.koin.logger.slf4jLogger
@@ -31,10 +35,9 @@ fun Application.module() {
     val audience = environment.config.property("jwt.audience").getString()
     val myRealm = environment.config.property("jwt.realm").getString()
 
-    install(Authentication)
-    {
-        jwt("auth-jwt")
-        {
+
+    install(Authentication) {
+        jwt("auth-jwt") {
             realm = myRealm
             verifier(
                 JWT
@@ -43,6 +46,11 @@ fun Application.module() {
                     .withAudience(audience)
                     .build()
             )
+            authHeader { call ->
+                call.request.queryParameters["token"]?.let { tokenFromQuery ->
+                    HttpAuthHeader.Single("Bearer", tokenFromQuery)
+                } ?: call.request.parseAuthorizationHeader()
+            }
             validate { credential ->
                 credential.payload.getClaim("userEmail").asString()?.let { userEmail ->
                     UserPrincipal(userEmail)
@@ -61,6 +69,15 @@ fun Application.module() {
                 single {
                     connectToMongoDB()
                 }
+
+                single {
+                    Json {
+                        ignoreUnknownKeys = true
+                        isLenient = true
+                        prettyPrint = true
+                    }
+                }
+
                 single<UserRepository> {
                     UserRepository()
                 }
@@ -73,10 +90,14 @@ fun Application.module() {
                 single<MessageRepository> {
                     MessageRepository()
                 }
+                single<WebSocketHandler> {
+                    WebSocketHandler()
+                }
             }
         )
     }
 
     configureSockets()
+    configureWebSocketRouting()
     configureRouting()
 }

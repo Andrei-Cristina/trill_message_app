@@ -1,29 +1,31 @@
 package org.message.trill.session.sesame
 
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.datetime.Clock
 import org.message.trill.encryption.double_ratchet.DoubleRatchet
 import org.message.trill.encryption.double_ratchet.RatchetState
 import org.message.trill.encryption.keys.KeyManager
 import org.message.trill.encryption.x3dh.X3DH
-import org.message.trill.messaging.models.Header
 import org.message.trill.messaging.models.Message
 import org.message.trill.messaging.models.MessageContent
 import org.message.trill.networking.NetworkManager
 import org.message.trill.networking.NetworkResponse
 import org.message.trill.session.storage.SessionStorage
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
 
 class SesameManager(
 private val keyManager: KeyManager,
 private val networkManager: NetworkManager,
 private val sessionStorage: SessionStorage
 ) {
-    private var userRecords: MutableMap<String, UserRecord> = mutableMapOf()
+    private val userRecords: ConcurrentHashMap<String, UserRecord> = ConcurrentHashMap()
+
     private val MAX_INACTIVE_SESSIONS = 10
     private val MAX_LATENCY = 14400000L
 
     init {
-        userRecords = sessionStorage.loadUserRecords().toMutableMap()
+        userRecords.putAll(sessionStorage.loadUserRecords())
         println("Initialized SesameManager with ${userRecords.size} user records")
     }
 
@@ -74,8 +76,8 @@ private val sessionStorage: SessionStorage
 
         println("Sending ${messages.size} messages to $recipientUserId")
 
-        val response = networkManager.sendMessages(messages)
-        handleNetworkResponse(senderId, response, recipientUserId, plaintext)
+        //val response = networkManager.sendMessages(messages)
+        val response = networkManager.sendMessagesViaWebSocket(messages)
     }
 
     private suspend fun prepareMessageContent(senderId: String, recipientUserId: String, recipientDeviceId: String, plaintext: ByteArray): MessageContent {
@@ -311,17 +313,6 @@ private val sessionStorage: SessionStorage
         return session
     }
 
-//    private fun findSessionForMessage(deviceRecord: DeviceRecord, content: MessageContent): Session? {
-//        println("findSessionForMessage: deviceId=${deviceRecord.deviceId}, header.dh=${content.header.dh.encodeToBase64()}")
-//        if (deviceRecord.activeSession?.ratchetState?.dhr?.contentEquals(content.header.dh) == true) {
-//            println("Found active session for device ${deviceRecord.deviceId}")
-//            return deviceRecord.activeSession
-//        }
-//        val session = deviceRecord.inactiveSessions.find { it.ratchetState.dhr?.contentEquals(content.header.dh) == true }
-//        println("Found session in inactive sessions: ${session?.sessionId ?: "none"}")
-//        return session
-//    }
-
     private fun findSessionForMessage(deviceRecord: DeviceRecord, content: MessageContent): Session? {
         println("findSessionForMessage: deviceId=${deviceRecord.deviceId}")
         if (deviceRecord.activeSession != null) {
@@ -420,36 +411,16 @@ private val sessionStorage: SessionStorage
         return userRecord
     }
 
-//    private fun createDeviceRecord(deviceId: String, userId: String): DeviceRecord {
-//        println("createDeviceRecord: userId=$userId, deviceId=$deviceId")
-//        val deviceRecord = DeviceRecord(deviceId, byteArrayOf(), null)
-//
-//        userRecords[userId]!!.devices[deviceId] = deviceRecord
-//        sessionStorage.saveUserRecords(userRecords)
-//        println("Saved new device record $deviceId for $userId")
-//
-//        return deviceRecord
-//    }
-
     private fun createDeviceRecord(deviceId: String, userId: String): DeviceRecord {
         println("createDeviceRecord: Attempting to create device record for userId=$userId, deviceId=$deviceId (this should be Base64 public key)")
 
-        // START OF CHANGES ====================================================================
-        // WHY: The original createDeviceRecord initialized publicKey to an empty byte array.
-        // This caused issues because the public key is essential for cryptographic operations
-        // when replying to this user/device or establishing a new session.
-        // The 'deviceId' in this system is the Base64 encoded public identity key of the device.
-        // This change decodes the deviceId to obtain the actual public key bytes and uses them
-        // to populate the publicKey field of the new DeviceRecord.
-
         var publicKeyBytes: ByteArray
         try {
-            // The deviceId string IS the Base64 encoded public key of the sender's device
             val decodedKey = Base64.getDecoder().decode(deviceId)
             if (decodedKey.isEmpty()) {
                 println("WARNING in createDeviceRecord: Decoded public key from deviceId '$deviceId' is EMPTY for user '$userId'. This will likely cause errors.")
                 publicKeyBytes = byteArrayOf()
-            } else if (decodedKey.size != 32) { // Assuming 32-byte Ed25519/X25519 keys
+            } else if (decodedKey.size != 32) {
                 println("WARNING in createDeviceRecord: Decoded public key from deviceId '$deviceId' for user '$userId' has non-standard length: ${decodedKey.size} bytes. Expected 32. Using it anyway.")
                 publicKeyBytes = decodedKey
             } else {
@@ -462,22 +433,16 @@ private val sessionStorage: SessionStorage
         }
 
         val newDeviceRecord = DeviceRecord(
-            deviceId = deviceId,        // Store the original Base64 string (which is the public key) as the ID
-            publicKey = publicKeyBytes, // Use the derived public key bytes
-            activeSession = null,       // New device, no active session established yet
+            deviceId = deviceId,
+            publicKey = publicKeyBytes,
+            activeSession = null,
             isStale = false,
             staleTransitionTimestamp = null
-            // inactiveSessions will default to empty mutable list
         )
 
         val userRecord = userRecords[userId]
         if (userRecord == null) {
             println("CRITICAL ERROR in createDeviceRecord: UserRecord for '$userId' is null. Cannot add device '$deviceId'. This should not happen if createUserRecord was invoked correctly before this.")
-            // Potentially, you could try to create the user record here too, but it's better if it's ensured by caller.
-            // For now, let's throw to highlight the issue, or handle it by creating a temporary user record.
-            // However, receiveMessage already does `userRecords[message.senderId] ?: createUserRecord(message.senderId)`
-            // So userRecord should ideally not be null here.
-            // If it is, it implies userRecords map got into an inconsistent state.
             throw IllegalStateException("UserRecord for '$userId' must exist when createDeviceRecord is called.")
         }
 
@@ -488,9 +453,8 @@ private val sessionStorage: SessionStorage
         } else {
             println("NOTICE: Created DeviceRecord for $userId / $deviceId, but its public key is EMPTY. This was likely due to an issue decoding the deviceId: '$deviceId'. Subsequent operations will fail.")
         }
-        // END OF CHANGES ======================================================================
 
-        sessionStorage.saveUserRecords(userRecords) // Save all user records to persistence.
+        sessionStorage.saveUserRecords(userRecords)
         return newDeviceRecord
     }
 

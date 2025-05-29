@@ -14,18 +14,17 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
-import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 import org.message.trill.MessageClient
 import org.message.trill.encryption.utils.TimestampFormatter
 import org.message.trill.encryption.utils.models.User
+import org.message.trill.messaging.models.ReceivedMessage
 import org.slf4j.LoggerFactory
 import kotlin.random.Random
 
@@ -59,7 +58,7 @@ fun MainScreen(
         return contactNicknames[email] ?: client.getLocalUserNickname(email)?.also {
             contactNicknames[email] = it
             logger.debug("Fetched and cached nickname for $email: $it")
-        } ?: email.also { logger.debug("Nickname for $email not found, using email: $email") }
+        } ?: email.also { logger.debug("Nickname for $email not found, using email as display name.") }
     }
 
     LaunchedEffect(currentUserEmail) {
@@ -73,25 +72,25 @@ fun MainScreen(
 
         try {
             val partners = client.getRecentConversationPartners(currentUserEmail)
-            logger.info("Initial Load: Raw partners for $currentUserEmail: $partners")
+            logger.info("Initial Load: Fetched ${partners.size} recent partners for $currentUserEmail.")
 
             if (partners.isNotEmpty()) {
                 val initialConversations = mutableMapOf<String, SnapshotStateList<ConversationMessage>>()
                 partners.forEach { partnerEmail ->
                     initialConversations[partnerEmail] = mutableStateListOf()
+
                     scope.launch { getOrFetchNickname(partnerEmail) }
                 }
                 conversations.putAll(initialConversations)
             } else {
                 logger.info("Initial Load: No recent partners found for $currentUserEmail.")
             }
-            logger.info("Initial Load: Finished processing partners. Conversation keys: ${conversations.keys.joinToString()}")
         } catch (e: Exception) {
             logger.error("Initial Load: Error loading recent contacts for $currentUserEmail: ${e.message}", e)
             globalErrorMessage = "Could not load contacts: ${e.message}"
         } finally {
             isLoadingContacts = false
-            logger.info("Initial Load: isLoadingContacts set to false for $currentUserEmail.")
+            logger.info("Initial Load: Finished for $currentUserEmail. isLoadingContacts set to false.")
         }
     }
 
@@ -100,91 +99,104 @@ fun MainScreen(
             if (conversations[contact]?.isEmpty() == true || conversations[contact] == null) {
                 isLoadingMessages = true
                 globalErrorMessage = null
-                logger.info("LaunchedEffect (Load Messages): Loading for $contact")
+                logger.info("LaunchedEffect (Load Messages): Loading for $contact with $currentUserEmail")
                 try {
                     val messages = client.loadMessagesForConversation(currentUserEmail, contact)
                     conversations[contact] = messages.toMutableStateList()
                     if (messages.isNotEmpty()) {
-                        scope.launch { chatMessagesListState.animateScrollToItem(messages.size - 1) }
+                        scope.launch {
+                            try { chatMessagesListState.animateScrollToItem(messages.size - 1) }
+                            catch (e: Exception) { logger.warn("Failed to scroll on initial message load: ${e.message}")}
+                        }
                     }
                     logger.info("Load Messages: Loaded ${messages.size} messages for $contact.")
                 } catch (e: Exception) {
-                    logger.error("Load Messages: Error for $contact: ${e.message}", e)
+                    logger.error("Load Messages: Error loading messages for $contact: ${e.message}", e)
                     globalErrorMessage = "Could not load messages for $contact: ${e.message}"
                 } finally {
                     isLoadingMessages = false
                 }
             } else if (conversations[contact]?.isNotEmpty() == true) {
-                scope.launch { chatMessagesListState.animateScrollToItem(conversations[contact]!!.size - 1) }
+                scope.launch {
+                    try { chatMessagesListState.animateScrollToItem(conversations[contact]!!.size - 1) }
+                    catch (e: Exception) { logger.warn("Failed to scroll on contact re-selection: ${e.message}")}
+                }
             }
         }
     }
 
-    LaunchedEffect(currentUserEmail) {
-        if (isLoadingContacts) {
-            delay(1000L)
-        }
-        logger.info("Polling for $currentUserEmail: Started.")
-        while (true) {
-            try {
-                val newReceivedMessages = client.receiveMessages(currentUserEmail)
-                if (newReceivedMessages.isNotEmpty()) {
-                    globalErrorMessage = null
-                    logger.info("Polling: Received ${newReceivedMessages.size} new messages.")
+    LaunchedEffect(client, currentUserEmail) {
+        logger.info("MainScreen starting to observe newMessageForUiFlow for $currentUserEmail")
+        client.newMessageForUiFlow
+            .collect { receivedMsg: ReceivedMessage ->
+                logger.info("MainScreen received new message via Flow from ${receivedMsg.senderId} for ${receivedMsg.content.take(20)}...")
+                globalErrorMessage = null
+
+                if (receivedMsg.senderId == currentUserEmail) {
+                    logger.info("Ignoring self-sent message received via WebSocket flow.")
+                    return@collect
                 }
 
-                newReceivedMessages.forEach { receivedMsg ->
-                    val contact = receivedMsg.senderId
-                    val uiMessage = ConversationMessage(
-                        id = "recv_${Clock.System.now().toEpochMilliseconds()}_${Random.nextInt()}",
-                        content = receivedMsg.content,
-                        isSent = false,
-                        timestamp = TimestampFormatter.format(receivedMsg.timestamp.toLongOrNull() ?: Clock.System.now().toEpochMilliseconds()),
-                    )
+                val contact = receivedMsg.senderId
+                val uiMessage = ConversationMessage(
+                    id = "recv_ws_${Clock.System.now().toEpochMilliseconds()}_${Random.nextInt()}",
+                    content = receivedMsg.content,
+                    isSent = false,
+                    timestamp = TimestampFormatter.format(
+                        receivedMsg.timestamp.toLongOrNull() ?: Clock.System.now().toEpochMilliseconds()
+                    ),
+                )
 
-                    val messageList = conversations.getOrPut(contact) {
-                        logger.info("Polling: New contact '$contact' detected. Adding to conversations.")
-                        scope.launch { getOrFetchNickname(contact) }
-                        mutableStateListOf()
-                    }
+                val messageList = conversations.getOrPut(contact) {
+                    logger.info("New message via flow for a new contact '$contact'. Adding to conversations map.")
+                    scope.launch { getOrFetchNickname(contact) }
+                    mutableStateListOf()
+                }
 
-                    if (!messageList.any { it.id == uiMessage.id || (it.content == uiMessage.content && it.timestamp == uiMessage.timestamp && !it.isSent) }) {
-                        messageList.add(uiMessage)
-                        logger.debug("Polling: Added new message from $contact. List size: ${messageList.size}")
-                    }
+                val isDuplicate = messageList.any {
+                    !it.isSent && it.content == uiMessage.content &&
+                            it.timestamp == uiMessage.timestamp
+                }
+
+                if (!isDuplicate) {
+                    messageList.add(uiMessage)
+                    logger.debug("Added new message from $contact via flow. List size for $contact: ${messageList.size}")
 
                     if (contact == selectedContactEmail && messageList.isNotEmpty()) {
-                        scope.launch { chatMessagesListState.animateScrollToItem(messageList.size - 1) }
+                        scope.launch {
+                            try {
+                                chatMessagesListState.animateScrollToItem(messageList.size - 1)
+                            } catch (e: Exception) {
+                                logger.warn("Failed to animate scroll on new WS message: ${e.message}")
+                            }
+                        }
                     }
+                } else {
+                    logger.debug("Duplicate message detected via flow from $contact, not adding: ${uiMessage.content.take(30)}")
                 }
-            } catch (e: Exception) {
-                logger.error("Polling: Error for $currentUserEmail: ${e.message}", e)
             }
-            delay(3000L)
-        }
     }
 
     val allKnownContactEmails = remember(conversations.keys.toList(), searchResults) {
         val searchEmails = searchResults.map { it.email }
         (conversations.keys + searchEmails).distinct().also {
-            logger.debug("Recalculated allKnownContactEmails. Count: ${it.size}. Keys: [${it.joinToString()}]")
+            logger.debug("Recalculated allKnownContactEmails. Count: ${it.size}")
         }
     }
 
     val displayContactsAndInfo = remember(
         allKnownContactEmails,
-        conversations.entries.associate { it.key to (it.value.lastOrNull()?.timestamp + it.value.size.toString()) },
+        conversations.entries.associate { it.key to (it.value.lastOrNull()?.id + it.value.size.toString()) },
         contactNicknames.toMap(),
-        searchQuery,
-        isSearching
+        searchQuery
     ) {
-        logger.debug("Recalculating displayContactsAndInfo. Query: '$searchQuery'. allKnownContactEmails: ${allKnownContactEmails.size}, isSearching: $isSearching")
+        logger.debug("Recalculating displayContactsAndInfo. Query: '$searchQuery'. Known contacts: ${allKnownContactEmails.size}")
         allKnownContactEmails
             .mapNotNull { email ->
                 val displayName = contactNicknames[email] ?: email
                 if (searchQuery.isBlank() || displayName.contains(searchQuery, ignoreCase = true) || email.contains(searchQuery, ignoreCase = true)) {
                     val lastMsgObject = conversations[email]?.lastOrNull()
-                    val lastMessageText = lastMsgObject?.content ?: run {
+                    val lastMessageText = lastMsgObject?.content?.take(30) ?: run {
                         if (conversations.containsKey(email)) "No messages yet"
                         else "Tap to start chat"
                     }
@@ -192,7 +204,7 @@ fun MainScreen(
                         email = email,
                         displayName = displayName,
                         lastMessage = lastMessageText,
-                        lastMessageTimestamp = lastMsgObject?.timestamp ?: "",
+                        lastMessageTimestamp = lastMsgObject?.timestamp ?: "0",
                         avatarSeed = email
                     )
                 } else { null }
@@ -201,12 +213,12 @@ fun MainScreen(
                 when (it.lastMessageTimestamp) {
                     "Sending..." -> Long.MAX_VALUE.toString()
                     "Failed" -> (Long.MAX_VALUE - 1).toString()
-                    "" -> "0"
+                    "0" -> "0"
                     else -> it.lastMessageTimestamp
                 }
             }.thenBy { it.displayName })
             .also {
-                logger.debug("Finished recalculating displayContactsAndInfo. Count: ${it.size}. First 5: ${it.take(5).map { c -> c.displayName }}")
+                logger.debug("Finished recalculating displayContactsAndInfo. Displayed count: ${it.size}")
             }
     }
 
@@ -237,8 +249,13 @@ fun MainScreen(
             ) {
                 OutlinedTextField(
                     value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    label = { Text("Search or start new chat (email)") },
+                    onValueChange = { newQuery ->
+                        searchQuery = newQuery
+                        if (newQuery.isBlank()) {
+                            searchResults = emptyList()
+                        }
+                    },
+                    label = { Text("Search contacts or new email") },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     trailingIcon = {
@@ -261,7 +278,9 @@ fun MainScreen(
                                         } catch (e: Exception) {
                                             globalErrorMessage = "Search failed: ${e.message}"
                                             searchResults = emptyList()
-                                        } finally { isSearching = false }
+                                        } finally {
+                                            isSearching = false
+                                        }
                                     }
                                 } else if (searchQuery.lowercase() == currentUserEmail.lowercase()) {
                                     globalErrorMessage = "You cannot search for yourself."
@@ -271,18 +290,14 @@ fun MainScreen(
                                 else Icon(Icons.Filled.Search, "Search users")
                             }
                         }
-                    },
-                    colors = TextFieldDefaults.outlinedTextFieldColors(
-                        focusedBorderColor = MaterialTheme.colors.primary,
-                        unfocusedBorderColor = MaterialTheme.colors.onSurface.copy(alpha = ContentAlpha.disabled)
-                    )
+                    }
                 )
             }
             Divider(modifier = Modifier.padding(horizontal = 16.dp))
 
             Row(modifier = Modifier.fillMaxSize()) {
                 Column(modifier = Modifier.weight(1f).fillMaxHeight().padding(start = 8.dp, end = 4.dp, top = 8.dp)) {
-                    if (isLoadingContacts) {
+                    if (isLoadingContacts && displayContactsAndInfo.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()
                             Text("Loading conversations...", modifier = Modifier.padding(top = 60.dp))
@@ -302,8 +317,10 @@ fun MainScreen(
                                         contactInfo = contactInfo,
                                         isSelected = contactInfo.email == selectedContactEmail,
                                         onClick = {
-                                            selectedContactEmail = contactInfo.email
-                                            conversations.putIfAbsent(contactInfo.email, mutableStateListOf())
+                                            if (selectedContactEmail != contactInfo.email) {
+                                                selectedContactEmail = contactInfo.email
+                                                conversations.putIfAbsent(contactInfo.email, mutableStateListOf())
+                                            }
                                             searchQuery = ""
                                             searchResults = emptyList()
                                         }
@@ -329,7 +346,7 @@ fun MainScreen(
                     Column(modifier = Modifier.weight(2.5f).fillMaxHeight()) {
                         TopAppBar(
                             title = { Text(contactNicknames[currentChatPartnerEmail] ?: currentChatPartnerEmail, fontWeight = FontWeight.SemiBold, fontSize = 18.sp) },
-                            actions = { IconButton(onClick = { /* TODO */ }) { Icon(Icons.Filled.MoreVert, "More options") } },
+                            actions = { IconButton(onClick = { /* TODO: More options */ }) { Icon(Icons.Filled.MoreVert, "More options") } },
                             backgroundColor = MaterialTheme.colors.surface,
                             elevation = AppBarDefaults.TopAppBarElevation / 2
                         )
@@ -338,6 +355,7 @@ fun MainScreen(
                         if (isLoadingMessages && (conversations[currentChatPartnerEmail]?.isEmpty() == true || conversations[currentChatPartnerEmail] == null)) {
                             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator()
+                                Text("Loading messages...", modifier = Modifier.padding(top = 60.dp))
                             }
                         } else {
                             ChatArea(
@@ -356,13 +374,13 @@ fun MainScreen(
                                         isSent = true,
                                         timestamp = "Sending..."
                                     )
-                                    val messageList =
-                                        conversations.getOrPut(currentChatPartnerEmail) { mutableStateListOf() }
+                                    val messageList = conversations.getOrPut(currentChatPartnerEmail) { mutableStateListOf() }
                                     messageList.add(optimisticMessage)
                                     scope.launch {
-                                        if (messageList.isNotEmpty()) chatMessagesListState.animateScrollToItem(
-                                            messageList.size - 1
-                                        )
+                                        if (messageList.isNotEmpty()) {
+                                            try { chatMessagesListState.animateScrollToItem(messageList.size - 1) }
+                                            catch (e: Exception) { logger.warn("Failed to scroll on send: ${e.message}")}
+                                        }
                                     }
 
                                     try {
@@ -370,16 +388,16 @@ fun MainScreen(
                                         val optimisticIndex = messageList.indexOfFirst { it.id == tempId }
                                         if (optimisticIndex != -1) {
                                             messageList[optimisticIndex] = messageList[optimisticIndex].copy(
-                                                timestamp = TimestampFormatter.format(
-                                                    Clock.System.now().toEpochMilliseconds()
-                                                )
+                                                timestamp = TimestampFormatter.format(Clock.System.now().toEpochMilliseconds())
                                             )
                                         }
                                     } catch (e: Exception) {
+                                        logger.error("Failed to send message to $currentChatPartnerEmail: ${e.message}", e)
                                         globalErrorMessage = "Failed to send: ${e.message?.take(100)}"
                                         val index = messageList.indexOfFirst { it.id == tempId }
-                                        if (index != -1) messageList[index] =
-                                            optimisticMessage.copy(timestamp = "Failed")
+                                        if (index != -1) {
+                                            messageList[index] = optimisticMessage.copy(timestamp = "Failed")
+                                        }
                                     }
                                 }
                             }
@@ -391,7 +409,7 @@ fun MainScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            if (isLoadingContacts) "Loading..."
+                            if (isLoadingContacts) "Loading contacts..."
                             else if (displayContactsAndInfo.isEmpty() && searchQuery.isBlank()) "Search for users to start a new chat."
                             else "Select a contact to view messages.",
                             style = MaterialTheme.typography.subtitle1,

@@ -21,6 +21,7 @@ kotlinx-coroutines = "1.10.1"
 kotlinxDatetime = "0.6.2"
 ktorClientCioJvm = "3.1.2"
 ktorClientCore = "3.1.1"
+ktorClientWebsockets = "2.3.12"
 lazysodiumJava = "5.1.4"
 material = "1.7.0"
 multiplatformCryptoLibsodiumBindingsIosx64 = "0.9.2"
@@ -57,6 +58,7 @@ kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.
 ktor-client-cio-jvm = { module = "io.ktor:ktor-client-cio-jvm", version.ref = "ktorClientCioJvm" }
 ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktorClientCioJvm" }
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktorClientCore" }
+ktor-client-websockets = { module = "io.ktor:ktor-client-websockets", version.ref = "ktorClientWebsockets" }
 ktor-ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktorClientCore" }
 ktor-ktor-utils = { module = "io.ktor:ktor-utils", version.ref = "ktorClientCore" }
 ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json" }

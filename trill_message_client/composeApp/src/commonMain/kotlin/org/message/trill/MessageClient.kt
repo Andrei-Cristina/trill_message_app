@@ -1,10 +1,13 @@
 package org.message.trill
 
+import kotlinx.coroutines.flow.SharedFlow
 import org.message.trill.encryption.utils.models.User
 import org.message.trill.messaging.models.ReceivedMessage
 import org.message.trill.ui.ConversationMessage
 
 expect class MessageClient() {
+    val newMessageForUiFlow: SharedFlow<ReceivedMessage>
+
     suspend fun userLogOut()
     suspend fun loginUser(email:String, password: String):String
     suspend fun registerUser(email:String, password: String, nickname: String)

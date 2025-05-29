@@ -68,11 +68,64 @@ CREATE TABLE IF NOT EXISTS client_info (
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     sender_email TEXT NOT NULL,
-    receiver_email TEXT NOT NULL, -- The other participant in the conversation
+    receiver_email TEXT NOT NULL,
     content TEXT NOT NULL,
-    timestamp INTEGER NOT NULL, -- Store as Epoch Milliseconds
-    is_sent_by_local_user INTEGER NOT NULL -- 0 for false, 1 for true
+    timestamp INTEGER NOT NULL,
+    is_sent_by_local_user INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS debug_data (
+    message_id INTEGER NOT NULL,
+    message_key TEXT NOT NULL,
+    header_dh TEXT,
+    header_pn INTEGER,
+    header_n INTEGER,
+    full_ad TEXT,
+    ciphertext TEXT,
+    root_key TEXT,
+    receive_chain_key TEXT,
+    send_chain_key TEXT,
+    FOREIGN KEY (message_id) REFERENCES messages(id)
+);
+
+insertDebugData:
+INSERT INTO debug_data (
+    message_id,
+    message_key,
+    header_dh,
+    header_pn,
+    header_n,
+    full_ad,
+    ciphertext,
+    root_key,
+    receive_chain_key,
+    send_chain_key
+) VALUES (
+    :messageId,
+    :messageKey,
+    :headerDh,
+    :headerPn,
+    :headerN,
+    :fullAd,
+    :ciphertext,
+    :rootKey,
+    :receiveChainKey,
+    :sendChainKey
+);
+
+selectDebugData:
+SELECT
+    message_key,
+    header_dh,
+    header_pn,
+    header_n,
+    full_ad,
+    ciphertext,
+    root_key,
+    receive_chain_key,
+    send_chain_key
+FROM debug_data
+WHERE message_id = :messageId;
 
 -- Index for faster conversation loading
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(sender_email, receiver_email, timestamp);
@@ -83,6 +136,9 @@ CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
 insertMessage:
 INSERT INTO messages (sender_email, receiver_email, content, timestamp, is_sent_by_local_user)
 VALUES (?, ?, ?, ?, ?);
+
+internalLastInsertRowId:
+SELECT last_insert_rowid();
 
 getMessagesForConversation:
 SELECT id, sender_email, receiver_email, content, timestamp, is_sent_by_local_user
