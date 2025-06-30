@@ -4,16 +4,23 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.datetime.Clock
 import org.message.trill.encryption.keys.KeyManager
+import org.message.trill.encryption.utils.EncryptionUtils
+import org.message.trill.encryption.utils.FilePointerHelper
+import org.message.trill.encryption.utils.TimestampFormatter
+import org.message.trill.encryption.utils.models.User
+import org.message.trill.messaging.models.ConversationMessage
+import org.message.trill.messaging.models.FilePointer
 import org.message.trill.messaging.models.ReceivedMessage
 import org.message.trill.networking.NetworkManager
 import org.message.trill.session.sesame.DeviceRecord
 import org.message.trill.session.sesame.SesameManager
 import org.message.trill.session.sesame.UserRecord
 import org.message.trill.session.storage.SessionStorage
-import org.message.trill.ui.ConversationMessage
+import java.io.File
+import java.nio.file.Files
 import java.util.*
-import org.message.trill.encryption.utils.TimestampFormatter
-import org.message.trill.encryption.utils.models.User
+import javax.swing.JFileChooser
+import javax.swing.filechooser.FileSystemView
 
 actual class MessageClient actual constructor() {
     private var currentLoggedInUserEmail: String? = null
@@ -29,7 +36,8 @@ actual class MessageClient actual constructor() {
 
     private fun startObservingIncomingMessages() {
         messageClientScope?.cancel()
-        messageClientScope = CoroutineScope(Dispatchers.Default + SupervisorJob() + CoroutineName("MessageClientObserver"))
+        messageClientScope =
+            CoroutineScope(Dispatchers.Default + SupervisorJob() + CoroutineName("MessageClientObserver"))
 
         networkManager.incomingMessagesFlow
             .onEach { networkMessage ->
@@ -52,21 +60,31 @@ actual class MessageClient actual constructor() {
                 try {
                     println("Processing WebSocket message from ${networkMessage.senderId} for $activeUser")
                     val plaintext = currentSM.receiveMessage(networkMessage)
-                    val receivedMsg = ReceivedMessage(
-                        senderId = networkMessage.senderId,
-                        content = plaintext,
-                        timestamp = networkMessage.timestamp
-                    )
 
-                    val timestampMillis = networkMessage.timestamp.toLongOrNull() ?: Clock.System.now().toEpochMilliseconds()
+                    val timestampMillis =
+                        networkMessage.timestamp.toLongOrNull() ?: Clock.System.now().toEpochMilliseconds()
                     currentSS.saveMessage(
-                        senderEmail = receivedMsg.senderId,
+                        senderEmail = networkMessage.senderId,
                         receiverEmail = activeUser,
                         content = plaintext,
                         timestamp = timestampMillis,
                         isSentByLocalUser = false
                     )
-                    println("Received, decrypted, and saved message from ${receivedMsg.senderId} via WebSocket for $activeUser.")
+                    println("Received, decrypted, and saved message from ${networkMessage.senderId} via WebSocket for $activeUser.")
+
+                    val filePointer = FilePointerHelper.parseFilePointer(plaintext)
+                    val contentForUi = if (filePointer != null) {
+                        "[File] Received: ${filePointer.fileName}"
+                    } else {
+                        plaintext
+                    }
+
+                    val receivedMsg = ReceivedMessage(
+                        senderId = networkMessage.senderId,
+                        content = contentForUi,
+                        timestamp = networkMessage.timestamp,
+                        filePointer = filePointer
+                    )
 
                     _newMessageForUiFlow.tryEmit(receivedMsg)
 
@@ -204,6 +222,58 @@ actual class MessageClient actual constructor() {
         }
     }
 
+    actual suspend fun sendFile(senderId: String, recipientUserId: String, filePath: String) {
+        val file = File(filePath)
+        if (!file.exists()) throw Exception("File not found: $filePath")
+
+        var (fileKey, iv) = EncryptionUtils.generateKeyPair()
+        iv = iv.copyOfRange(0, 16)
+        val encryptedFileResult = EncryptionUtils.encryptFile(fileKey, iv, file.readBytes())
+
+        val uploadInfo = networkManager.requestUploadUrl(file.name, file.length())
+        println("Received upload URL ${uploadInfo.uploadUrl} for file ${file.name} with ID ${uploadInfo.fileId}.")
+
+        networkManager.uploadFile(uploadInfo.uploadUrl, encryptedFileResult.ciphertext)
+
+        val filePointer = FilePointer(
+            fileId = uploadInfo.fileId,
+            fileName = file.name,
+            fileSize = file.length(),
+            mimeType = withContext(Dispatchers.IO) { Files.probeContentType(file.toPath()) } ?: "application/octet-stream",
+            key = fileKey,
+            iv = iv,
+            hmac = encryptedFileResult.hmac
+        )
+
+        val pointerContent = FilePointerHelper.createFilePointerContent(filePointer)
+
+        sendMessage(senderId, recipientUserId, pointerContent)
+    }
+
+    actual suspend fun downloadAndDecryptFile(filePointer: FilePointer) {
+        withContext(Dispatchers.IO) {
+            val encryptedBytes = networkManager.downloadFile(filePointer.fileId)
+
+            val decryptedBytes = EncryptionUtils.decryptFile(
+                key = filePointer.key,
+                iv = filePointer.iv,
+                ciphertext = encryptedBytes,
+                receivedHmac = filePointer.hmac
+            )
+
+            val fileChooser = JFileChooser(FileSystemView.getFileSystemView().homeDirectory)
+            fileChooser.dialogTitle = "Save file"
+            fileChooser.selectedFile = File(filePointer.fileName)
+            val userSelection = fileChooser.showSaveDialog(null)
+
+            if (userSelection == JFileChooser.APPROVE_OPTION) {
+                val fileToSave = fileChooser.selectedFile
+                fileToSave.writeBytes(decryptedBytes)
+                println("File saved successfully to: ${fileToSave.absolutePath}")
+            }
+        }
+    }
+
     actual suspend fun receiveMessages(email: String): List<ReceivedMessage> {
         val (activeUser, ss, _) = getActiveComponents()
         if (email != activeUser) {
@@ -295,11 +365,20 @@ actual class MessageClient actual constructor() {
         return withContext(Dispatchers.IO) {
             val localDbMessages = ss.loadMessagesForConversation(activeUser, contactEmail)
             val uiMessages = localDbMessages.map { dbMsg ->
+                val filePointer = FilePointerHelper.parseFilePointer(dbMsg.content)
+                val contentForUi = if (filePointer != null) {
+                    val direction = if (dbMsg.senderEmail == activeUser) "Sent" else "Received"
+                    "[File] $direction: ${filePointer.fileName}"
+                } else {
+                    dbMsg.content
+                }
+
                 ConversationMessage(
                     id = dbMsg.id.toString(),
-                    content = dbMsg.content,
+                    content = contentForUi,
                     isSent = dbMsg.senderEmail == activeUser,
-                    timestamp = TimestampFormatter.format(dbMsg.timestamp)
+                    timestamp = TimestampFormatter.format(dbMsg.timestamp),
+                    filePointer = filePointer
                 )
             }
             println("Loaded ${uiMessages.size} messages for conversation $activeUser <-> $contactEmail.")

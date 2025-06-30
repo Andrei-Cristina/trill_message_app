@@ -1,5 +1,7 @@
 package org.message.trill.encryption.utils
 
+data class EncryptedFileResult(val ciphertext: ByteArray, val hmac: ByteArray)
+
 expect object EncryptionUtils {
     /**
      * Generates an X25519 key pair for Diffie-Hellman key exchange.
@@ -70,6 +72,8 @@ expect object EncryptionUtils {
      */
     fun encrypt(key: ByteArray, plaintext: ByteArray, ad: ByteArray): ByteArray
 
+    fun encryptFile(key: ByteArray, iv: ByteArray, plaintext: ByteArray, ad: ByteArray = byteArrayOf()): EncryptedFileResult
+
     /**
      * Decrypts ciphertext with associated data (AD) using AES-256 CBC with HMAC-SHA256.
      * - Expects the ciphertext to contain IV (16 bytes) + ciphertext + HMAC (32 bytes).
@@ -82,6 +86,8 @@ expect object EncryptionUtils {
      * @throws Exception if the key is invalid, ciphertext is malformed, or HMAC verification fails.
      */
     fun decrypt(key: ByteArray, ciphertext: ByteArray, ad: ByteArray): ByteArray
+
+    fun decryptFile(key: ByteArray, iv: ByteArray, ciphertext: ByteArray, receivedHmac: ByteArray, ad: ByteArray = byteArrayOf()): ByteArray
 
     /**
      * Signs data using Ed25519 with the provided private key.

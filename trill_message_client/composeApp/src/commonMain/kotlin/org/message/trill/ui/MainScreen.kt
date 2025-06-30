@@ -24,11 +24,11 @@ import kotlinx.datetime.Clock
 import org.message.trill.MessageClient
 import org.message.trill.encryption.utils.TimestampFormatter
 import org.message.trill.encryption.utils.models.User
+import org.message.trill.messaging.models.ConversationMessage
 import org.message.trill.messaging.models.ReceivedMessage
 import org.slf4j.LoggerFactory
+import java.io.File
 import kotlin.random.Random
-
-data class ConversationMessage(val id: String, val content: String, val isSent: Boolean, val timestamp: String)
 
 @Composable
 fun MainScreen(
@@ -145,6 +145,7 @@ fun MainScreen(
                     timestamp = TimestampFormatter.format(
                         receivedMsg.timestamp.toLongOrNull() ?: Clock.System.now().toEpochMilliseconds()
                     ),
+                    filePointer = receivedMsg.filePointer
                 )
 
                 val messageList = conversations.getOrPut(contact) {
@@ -361,42 +362,73 @@ fun MainScreen(
                             ChatArea(
                                 messages = conversations[currentChatPartnerEmail] ?: remember { mutableStateListOf() },
                                 listState = chatMessagesListState,
+                                onDownloadClick = { filePointer ->
+                                    scope.launch {
+                                        try {
+                                            client.downloadAndDecryptFile(filePointer)
+                                        } catch (e: Exception) {
+                                            globalErrorMessage = "Download failed: ${e.message}"
+                                            logger.error("Download failed", e)
+                                        }
+                                    }
+                                },
                                 modifier = Modifier.weight(1f).fillMaxWidth()
                             )
                         }
                         MessageInput(
-                            onSend = { messageText ->
+                            onSendText = { messageText ->
                                 scope.launch {
-                                    val tempId = "sent_${Clock.System.now().toEpochMilliseconds()}_${Random.nextInt()}"
+                                    val tempId = "sent_text_${Clock.System.now().toEpochMilliseconds()}"
                                     val optimisticMessage = ConversationMessage(
-                                        id = tempId,
-                                        content = messageText,
-                                        isSent = true,
-                                        timestamp = "Sending..."
+                                        id = tempId, content = messageText, isSent = true, timestamp = "Sending..."
                                     )
                                     val messageList = conversations.getOrPut(currentChatPartnerEmail) { mutableStateListOf() }
                                     messageList.add(optimisticMessage)
-                                    scope.launch {
-                                        if (messageList.isNotEmpty()) {
-                                            try { chatMessagesListState.animateScrollToItem(messageList.size - 1) }
-                                            catch (e: Exception) { logger.warn("Failed to scroll on send: ${e.message}")}
-                                        }
-                                    }
+                                    scope.launch { if (messageList.isNotEmpty()) chatMessagesListState.animateScrollToItem(messageList.size - 1) }
 
                                     try {
                                         client.sendMessage(currentUserEmail, currentChatPartnerEmail, messageText)
-                                        val optimisticIndex = messageList.indexOfFirst { it.id == tempId }
-                                        if (optimisticIndex != -1) {
-                                            messageList[optimisticIndex] = messageList[optimisticIndex].copy(
-                                                timestamp = TimestampFormatter.format(Clock.System.now().toEpochMilliseconds())
-                                            )
+                                        messageList.find { it.id == tempId }?.let {
+                                            val index = messageList.indexOf(it)
+                                            messageList[index] = it.copy(timestamp = TimestampFormatter.format(Clock.System.now().toEpochMilliseconds()))
                                         }
                                     } catch (e: Exception) {
-                                        logger.error("Failed to send message to $currentChatPartnerEmail: ${e.message}", e)
+                                        logger.error("Failed to send message", e)
                                         globalErrorMessage = "Failed to send: ${e.message?.take(100)}"
-                                        val index = messageList.indexOfFirst { it.id == tempId }
-                                        if (index != -1) {
-                                            messageList[index] = optimisticMessage.copy(timestamp = "Failed")
+                                        messageList.find { it.id == tempId }?.let {
+                                            val index = messageList.indexOf(it)
+                                            messageList[index] = it.copy(timestamp = "Failed")
+                                        }
+                                    }
+                                }
+                            },
+                            onSendFile = { filePath ->
+                                scope.launch {
+                                    val fileName = File(filePath).name
+                                    val tempId = "sent_file_${Clock.System.now().toEpochMilliseconds()}"
+                                    val optimisticMessage = ConversationMessage(
+                                        id = tempId,
+                                        content = "[File] Sending: $fileName",
+                                        isSent = true,
+                                        timestamp = "Sending...",
+                                        filePointer = null
+                                    )
+                                    val messageList = conversations.getOrPut(currentChatPartnerEmail) { mutableStateListOf() }
+                                    messageList.add(optimisticMessage)
+                                    scope.launch { if (messageList.isNotEmpty()) chatMessagesListState.animateScrollToItem(messageList.size - 1) }
+
+                                    try {
+                                        client.sendFile(currentUserEmail, currentChatPartnerEmail, filePath)
+                                        val newMessages = client.loadMessagesForConversation(currentUserEmail, currentChatPartnerEmail)
+                                        conversations[currentChatPartnerEmail] = newMessages.toMutableStateList()
+                                        scope.launch { if (newMessages.isNotEmpty()) chatMessagesListState.animateScrollToItem(newMessages.size - 1) }
+
+                                    } catch (e: Exception) {
+                                        logger.error("Failed to send file", e)
+                                        globalErrorMessage = "Failed to send file: ${e.message}"
+                                        messageList.find { it.id == tempId }?.let {
+                                            val index = messageList.indexOf(it)
+                                            messageList[index] = it.copy(timestamp = "Failed")
                                         }
                                     }
                                 }

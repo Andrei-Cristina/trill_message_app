@@ -45,7 +45,7 @@ class X3DH(private val keyManager: KeyManager) {
 
         println("DH outputs: dh1 size=${dh1.size}, dh2 size=${dh2.size}, dh3 size=${dh3.size}")
 
-//        val km = if (dh4 != null) dh1 + dh2 + dh3 + dh4 else dh1 + dh2 + dh3
+        //val km = if (dh4 != null) dh1 + dh2 + dh3 + dh4 else dh1 + dh2 + dh3
         val km = dh1 + dh2 + dh3
         println("Key material (km) size=${km.size}")
 
@@ -87,7 +87,7 @@ class X3DH(private val keyManager: KeyManager) {
         val dh1 = EncryptionUtils.dh(signedPreKey.preKey.privateKey, senderIdentityKey)
         val dh2 = EncryptionUtils.dh(identityKey.privateKey, senderEphemeralKey)
         val dh3 = EncryptionUtils.dh(signedPreKey.preKey.privateKey, senderEphemeralKey)
-        // val dh4 = oneTimePreKey?.privateKey?.let { EncryptionUtils.dh(it, senderEphemeralKey) }
+        //val dh4 = oneTimePreKey?.privateKey?.let { EncryptionUtils.dh(it, senderEphemeralKey) }
 
         println("DH outputs: dh1 size=${dh1.size}, dh2 size=${dh2.size}, dh3 size=${dh3.size}")
 
@@ -102,7 +102,6 @@ class X3DH(private val keyManager: KeyManager) {
         )
         println("Shared secret (sk): ${sk.encodeToBase64()}, size=${sk.size}")
 
-        // Ensure consistent ad order: senderIdentityKey + recipientIdentityKey
         val ad = senderIdentityKey + identityKey.publicKey
         println("Associated data (ad): ${ad.encodeToBase64()}, size=${ad.size}")
 

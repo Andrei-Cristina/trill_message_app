@@ -1,6 +1,7 @@
 package org.message.trill.networking
 
 import io.ktor.client.*
+import io.ktor.client.call.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
@@ -22,10 +23,7 @@ import org.message.trill.encryption.keys.PrekeyBundle
 import org.message.trill.encryption.keys.SignedPreKey
 import org.message.trill.encryption.utils.models.User
 import org.message.trill.messaging.models.Message
-import org.message.trill.networking.models.DeviceRegistrationBundle
-import org.message.trill.networking.models.EmailSearchRequest
-import org.message.trill.networking.models.LoginRequest
-import org.message.trill.networking.models.RegisterUserRequest
+import org.message.trill.networking.models.*
 import java.net.URLEncoder
 import java.util.*
 
@@ -443,6 +441,39 @@ class NetworkManager {
         } catch (e: Exception) {
             println("Error during searchUsersByEmail for '$email': ${e.message}")
             return emptyList()
+        }
+    }
+
+    suspend fun requestUploadUrl(fileName: String, fileSize: Long): UploadInfo {
+        if (jwtToken == null) throw Exception("Not authenticated")
+
+        return client.post("$baseUrl/files/upload-request") {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer $jwtToken")
+            setBody(UploadRequest(fileName, fileSize))
+        }.body()
+    }
+
+    suspend fun uploadFile(uploadUrl: String, data: ByteArray) {
+        val response = client.put(uploadUrl) {
+            setBody(data)
+            header(HttpHeaders.Authorization, "Bearer $jwtToken")
+            contentType(ContentType.Application.OctetStream)
+        }
+        if (!response.status.isSuccess()) {
+            throw Exception("File upload failed: ${response.status} - ${response.bodyAsText()}")
+        }
+    }
+
+    suspend fun downloadFile(fileId: String): ByteArray {
+        if (jwtToken == null) throw Exception("Not authenticated")
+        val response = client.get("$baseUrl/files/download/$fileId") {
+            header(HttpHeaders.Authorization, "Bearer $jwtToken")
+        }
+        if (response.status == HttpStatusCode.OK) {
+            return response.body<ByteArray>()
+        } else {
+            throw Exception("File download failed: ${response.status}")
         }
     }
 

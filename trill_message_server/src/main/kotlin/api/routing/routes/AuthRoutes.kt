@@ -15,7 +15,7 @@ import org.koin.ktor.ext.inject
 fun Route.authRoutes(){
     val userRepository: UserRepository by inject()
     val authUtils: AuthUtils by inject()
-    //TODO: implement proper jwt auth
+
     route("/auth") {
         post("/request-otp") {
             val authRequest = call.receive<AuthRequest>()

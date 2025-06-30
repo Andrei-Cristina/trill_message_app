@@ -47,6 +47,7 @@ kotlin {
             implementation(compose.ui)
             implementation(compose.components.resources)
             implementation(compose.components.uiToolingPreview)
+            implementation(compose.materialIconsExtended)
 
 
             implementation(libs.cafe.adriel.voyager.voyager.navigator)
@@ -107,6 +108,7 @@ android {
 
 dependencies {
     implementation(libs.androidx.foundation.android)
+    implementation(libs.androidx.media3.exoplayer)
     debugImplementation(compose.uiTooling)
 }
 

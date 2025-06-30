@@ -1,6 +1,5 @@
 package org.message.trill.session.sesame
 
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.datetime.Clock
 import org.message.trill.encryption.double_ratchet.DoubleRatchet
 import org.message.trill.encryption.double_ratchet.RatchetState
@@ -76,7 +75,6 @@ private val sessionStorage: SessionStorage
 
         println("Sending ${messages.size} messages to $recipientUserId")
 
-        //val response = networkManager.sendMessages(messages)
         val response = networkManager.sendMessagesViaWebSocket(messages)
     }
 

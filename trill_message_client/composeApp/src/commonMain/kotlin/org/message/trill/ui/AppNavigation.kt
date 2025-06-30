@@ -77,7 +77,6 @@ class ProfileScreenHost(
             client = client,
             onBack = { navigator.pop() },
             onLogout = {
-                // TODO: client.clearUserSession() if needed
                 navigator.replaceAll(LoginScreenHost(client))
             }
         )
