@@ -1,6 +1,5 @@
-package com.trill.message.data.models
+package data.models
 
-import io.ktor.util.date.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -16,7 +15,9 @@ data class Device(
     val onetimePreKeys: List<String>,
     val isOnline: Boolean,
     val isPrimary: Boolean,
-    val lastOnline: String
+    val lastOnline: String,
+    val refreshToken: String?,
+    val refreshTokenExpiresAt: Long?
 ){
     companion object {
         private val json = Json { ignoreUnknownKeys = true }

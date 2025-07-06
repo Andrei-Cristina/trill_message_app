@@ -235,11 +235,11 @@ actual object EncryptionUtils {
         return cipher.doFinal(ciphertext)
     }
 
-    actual fun sign(privateKey: ByteArray, data: ByteArray): ByteArray {
-        val signatureBase64 = sodium.cryptoSignDetached(data.encodeToBase64(), Key.fromBytes(privateKey))
-
-        return Base64.getDecoder().decode(signatureBase64)
-    }
+//    actual fun sign(privateKey: ByteArray, data: ByteArray): ByteArray {
+//        val signatureBase64 = sodium.cryptoSignDetached(data.encodeToBase64(), Key.fromBytes(privateKey))
+//
+//        return Base64.getDecoder().decode(signatureBase64)
+//    }
 
     actual fun verify(publicKey: ByteArray, data: ByteArray, signature: ByteArray): Boolean {
     println("verify: publicKey=${publicKey.encodeToBase64()}, data=${data.encodeToBase64()}, signature=${signature.encodeToBase64()}")
@@ -254,34 +254,34 @@ actual object EncryptionUtils {
     }
 
 
-//    actual fun sign(privateKey: ByteArray, data: ByteArray): ByteArray {
-//        if (privateKey.size != 32) throw Exception("Ed25519 private key must be 32 bytes")
-//
-//        // Compute SHA-512 of private key to get scalar and prefix
-//        val h = sha512(privateKey)
-//        val a = h.copyOfRange(0, 32)
-//        a[0] = (a[0].toInt() and 248).toByte()
-//        a[31] = (a[31].toInt() and 127).toByte()
-//        a[31] = (a[31].toInt() or 64).toByte()
-//
-//        // Compute r = SHA-512(prefix || message)
-//        val r = sha512(h.copyOfRange(32, 64) + data)
-//        val rReduced = scalarReduce(r)
-//        val rPoint = ed25519ScalarMultiplication(rReduced)
-//        val encodedR = encodePoint(rPoint)
-//
-//        // Compute public key A = aB
-//        val publicKey = ed25519ScalarMultiplication(a)
-//        val encodedA = encodePoint(publicKey)
-//
-//        // Compute S = r + SHA-512(R || A || message) * a (mod L)
-//        val hRAM = sha512(encodedR + encodedA + data)
-//        val hRAMReduced = scalarReduce(hRAM)
-//        val s = scalarAdd(rReduced, scalarMultiply(hRAMReduced, a))
-//        val encodedS = encodeScalar(s)
-//
-//        return encodedR + encodedS
-//    }
+    actual fun sign(privateKey: ByteArray, data: ByteArray): ByteArray {
+        if (privateKey.size != 32) throw Exception("Ed25519 private key must be 32 bytes")
+
+        // Compute SHA-512 of private key to get scalar and prefix
+        val h = sha512(privateKey)
+        val a = h.copyOfRange(0, 32)
+        a[0] = (a[0].toInt() and 248).toByte()
+        a[31] = (a[31].toInt() and 127).toByte()
+        a[31] = (a[31].toInt() or 64).toByte()
+
+        // Compute r = SHA-512(prefix || message)
+        val r = sha512(h.copyOfRange(32, 64) + data)
+        val rReduced = scalarReduce(r)
+        val rPoint = ed25519ScalarMultiplication(rReduced)
+        val encodedR = encodePoint(rPoint)
+
+        // Compute public key A = aB
+        val publicKey = ed25519ScalarMultiplication(a)
+        val encodedA = encodePoint(publicKey)
+
+        // Compute S = r + SHA-512(R || A || message) * a (mod L)
+        val hRAM = sha512(encodedR + encodedA + data)
+        val hRAMReduced = scalarReduce(hRAM)
+        val s = scalarAdd(rReduced, scalarMultiply(hRAMReduced, a))
+        val encodedS = encodeScalar(s)
+
+        return encodedR + encodedS
+    }
 
     private fun sha512(input: ByteArray): ByteArray {
         val digest = MessageDigest.getInstance("SHA-512")

@@ -37,6 +37,7 @@ kotlin {
             implementation(libs.androidx.activity.compose)
             implementation(libs.lazysodium.java)
             implementation(libs.android.driver)
+//            implementation(libs.ktor.client.auth)
 
             implementation(libs.cafe.adriel.voyager.voyager.navigator)
         }
@@ -64,6 +65,7 @@ kotlin {
             implementation(libs.ktor.client.core)
             implementation(libs.ktor.serialization.kotlinx.json)
             implementation(libs.ktor.client.content.negotiation)
+//            implementation(libs.ktor.client.auth)
 
             implementation(libs.runtime)
         }
@@ -72,6 +74,7 @@ kotlin {
             implementation(libs.kotlinx.coroutines.swing)
             implementation(libs.lazysodium.java)
             implementation(libs.ktor.client.cio.jvm)
+//            implementation(libs.ktor.client.auth)
             implementation(libs.sqlite.driver)
 
             implementation(libs.cafe.adriel.voyager.voyager.navigator)

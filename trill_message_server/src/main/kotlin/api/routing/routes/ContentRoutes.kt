@@ -32,7 +32,7 @@ fun Route.contentRoutes() {
 
                 val uploadUrl = "${application.environment.config.property("ktor.deployment.public_url").getString()}/files/storage/$fileId"
 
-                call.respond(UploadInfo(fileId, uploadUrl))
+                call.respond(HttpStatusCode.Accepted, UploadInfo(fileId, uploadUrl))
             }
 
             put("/storage/{fileId}") {
@@ -43,7 +43,7 @@ fun Route.contentRoutes() {
                     val fileToSave = File(uploadDir, fileId)
                     fileToSave.writeBytes(fileBytes)
                     call.application.log.info("Successfully received and stored file $fileId (${fileBytes.size} bytes)")
-                    call.respond(HttpStatusCode.OK)
+                    call.respond(HttpStatusCode.Created, "File $fileId uploaded successfully")
                 } catch (e: Exception) {
                     call.application.log.error("Failed to store file $fileId", e)
                     call.respond(HttpStatusCode.InternalServerError)

@@ -1,58 +1,81 @@
 package api.routing.routes
 
+import com.auth0.jwt.JWT
+import com.auth0.jwt.algorithms.Algorithm
 import data.models.AuthRequest
 import data.models.AuthVerifyRequest
+import data.models.RefreshTokenRequest
+import data.models.UserPrincipal
+import data.repositories.DeviceRepository
 import data.repositories.UserRepository
 import utils.AuthUtils
 import io.ktor.http.*
 import io.ktor.server.application.*
+import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.koin.ktor.ext.inject
+import java.util.*
 
 
 fun Route.authRoutes(){
     val userRepository: UserRepository by inject()
     val authUtils: AuthUtils by inject()
+    val deviceRepository: DeviceRepository by inject()
+    val jwtSecret = application.environment.config.property("jwt.secret").getString()
+    val jwtIssuer = application.environment.config.property("jwt.issuer").getString()
+    val jwtAudience = application.environment.config.property("jwt.audience").getString()
+    val jwtExpirationTime = application.environment.config.property("jwt.expirationTime").getString().toLong()
 
     route("/auth") {
-        post("/request-otp") {
-            val authRequest = call.receive<AuthRequest>()
-            call.application.environment.log.info("Received OTP request for email: {}", authRequest.email)
 
-            userRepository.getByEmail(authRequest.email).fold(
-                onSuccess = {
-                    call.application.environment.log.debug("User found for email: {}", authRequest.email)
-                    authUtils.sendOtp(authRequest.email)
+        post("/refresh") {
+            val request = call.receive<RefreshTokenRequest>()
 
-                    call.respond(HttpStatusCode.OK, "OTP sent to ${authRequest.email}")
-                    call.application.environment.log.info("OTP successfully sent to: {}", authRequest.email)
+            deviceRepository.findByRefreshToken(request.refreshToken).fold(
+                onSuccess = { device ->
+                    if (device.refreshTokenExpiresAt == null || device.refreshTokenExpiresAt < System.currentTimeMillis()) {
+                        call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Refresh token expired"))
+                        return@post
+                    }
+
+                    val newAccessToken = JWT.create()
+                        .withAudience(jwtAudience)
+                        .withIssuer(jwtIssuer)
+                        .withClaim("userEmail", device.userId)
+                        .withExpiresAt(Date(System.currentTimeMillis() + jwtExpirationTime))
+                        .sign(Algorithm.HMAC256(jwtSecret))
+
+                    val newRefreshToken = AuthUtils.generateRefreshToken(device.userId, device.identityKey)
+                    val newRefreshTokenExpiresAt = System.currentTimeMillis() + 7*24*60*60*1000
+
+                    deviceRepository.updateRefreshToken(device.identityKey, newRefreshToken, newRefreshTokenExpiresAt)
+
+                    call.respond(HttpStatusCode.OK, mapOf(
+                        "accessToken" to newAccessToken,
+                        "refreshToken" to newRefreshToken
+                    ))
                 },
-                onFailure = { e ->
-                    call.application.environment.log.warn("User not found for email: {}. Error: {}", authRequest.email, e.message)
-                    call.respond(HttpStatusCode.NotFound, "${e.message}")
+                onFailure = {
+                    call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Invalid refresh token"))
                 }
             )
         }
 
-        post("/verify-otp") {
-            val request = call.receive<AuthVerifyRequest>()
-            call.application.environment.log.info("Received OTP verification request for email: {}", request.email)
-
-            try {
-                if (authUtils.verifyOtp(request.email, request.otpCode)) {
-                    authUtils.deleteOtp(request.email)
-                    call.respond(HttpStatusCode.OK, "OTP verified successfully")
-                    call.application.environment.log.info("OTP verified successfully for email: {}", request.email)
-                } else {
-                    authUtils.deleteOtp(request.email)
-                    call.respond(HttpStatusCode.Unauthorized, "Invalid OTP")
-                    call.application.environment.log.warn("Invalid OTP provided for email: {}", request.email)
+        authenticate("auth-jwt") {
+            post("/logout") {
+                val principal = call.principal<UserPrincipal>()!!
+                val deviceId = call.request.queryParameters["deviceId"]
+                if (deviceId.isNullOrBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, "Device ID is required")
+                    return@post
                 }
-            } catch (e: Exception) {
-                call.application.environment.log.error("OTP verification failed for email: {}. Error: {}", request.email, e.message, e)
-                call.respond(HttpStatusCode.InternalServerError, "Verification failed: ${e.message}")
+
+                deviceRepository.clearRefreshToken(deviceId).fold(
+                    onSuccess = { call.respond(HttpStatusCode.NoContent, "Logged out successfully") },
+                    onFailure = { call.respond(HttpStatusCode.InternalServerError, "Logout failed") }
+                )
             }
         }
     }

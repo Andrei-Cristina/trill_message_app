@@ -1,6 +1,6 @@
 package api.routing.routes
 
-import com.trill.message.data.models.Device
+import data.models.Device
 import data.models.DeviceKeyBundle
 import data.models.DeviceRegistrationBundle
 import data.repositories.DeviceRepository
@@ -11,7 +11,6 @@ import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import io.ktor.util.*
 import io.ktor.util.date.*
 import org.koin.ktor.ext.inject
 import java.util.*
@@ -43,6 +42,7 @@ fun Route.deviceRoutes() {
                     "Invalid device registration data for email: {}",
                     registerBundle.userEmail
                 )
+
                 call.respond(
                     HttpStatusCode.BadRequest,
                     mapOf("error" to "Missing or invalid device registration fields")
@@ -78,7 +78,9 @@ fun Route.deviceRoutes() {
                     onetimePreKeys = registerBundle.onetimePreKeys.map { Base64.getEncoder().encodeToString(it) },
                     isPrimary = false,
                     isOnline = false,
-                    lastOnline = GMTDate().toString()
+                    lastOnline = GMTDate().toString(),
+                    refreshToken = "",
+                    refreshTokenExpiresAt = 0L
                 )
             ).fold(
                 onSuccess = { id ->

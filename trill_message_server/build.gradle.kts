@@ -44,6 +44,7 @@ dependencies {
     // JWt dependencies
     implementation("io.ktor:ktor-server-auth:$ktor_version")
     implementation("io.ktor:ktor-server-auth-jwt:$ktor_version")
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.15.2")
 
     // Koin for dependency injection
     implementation("io.insert-koin:koin-ktor:$koin_version")

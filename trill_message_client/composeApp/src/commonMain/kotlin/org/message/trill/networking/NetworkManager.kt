@@ -17,6 +17,9 @@ import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import org.message.trill.encryption.keys.PreKey
 import org.message.trill.encryption.keys.PrekeyBundle
@@ -33,18 +36,22 @@ class NetworkManager {
         isLenient = true
         prettyPrint = true
     }
+
     private val client = HttpClient {
         install(ContentNegotiation) {
             json(clientJson)
         }
         install(WebSockets)
+
     }
 
     private val baseUrl = "http://0.0.0.0:8080"
     private val wsBaseUrl = "ws://0.0.0.0:8080"
 
     private var jwtToken: String? = null
+    private var refreshToken: String? = null
     private var currentDeviceId: String? = null
+    private val refreshMutex = Mutex()
 
     @Volatile
     private var webSocketSession: ClientWebSocketSession? = null
@@ -80,8 +87,10 @@ class NetworkManager {
             HttpStatusCode.OK -> {
                 val body = response.bodyAsText()
                 val jsonResponse = Json.decodeFromString<Map<String, String>>(body)
-                this.jwtToken = jsonResponse["token"]
-                if (this.jwtToken == null) {
+                this.jwtToken = jsonResponse["accessToken"]
+                this.refreshToken = jsonResponse["refreshToken"]
+
+                if (this.jwtToken == null || this.refreshToken == null) {
                     throw Exception("JWT token not returned from login: $body")
                 }
                 this.currentDeviceId = identityKey.encodeToBase64()
@@ -110,15 +119,153 @@ class NetworkManager {
         }
     }
 
-    fun logout() {
-        println("Logging out user")
-        disconnectWebSocket()
-        jwtToken = null
-        currentDeviceId = null
+//    fun logout() {
+//        println("Logging out user")
+//        disconnectWebSocket()
+//        jwtToken = null
+//        refreshToken = null
+//        currentDeviceId = null
+//    }
+
+    suspend fun logout() {
+        println("Logging out user...")
+        val deviceIdToLogout = currentDeviceId ?: return
+
+        try {
+            val response = authenticatedPost<HttpResponse>("$baseUrl/auth/logout?deviceId=$deviceIdToLogout")
+
+            if (response.status == HttpStatusCode.NoContent || response.status.isSuccess()) {
+                println("Successfully logged out on server.")
+            } else {
+                println("Failed to log out on server, status: ${response.status}. Continuing with local logout.")
+            }
+        } catch (e: Exception) {
+            println("Network request for logout failed: ${e.message}. Continuing with local logout.")
+        } finally {
+            disconnectWebSocket()
+            jwtToken = null
+            refreshToken = null
+            currentDeviceId = null
+        }
     }
 
     fun isAuthenticated(): Boolean {
         return jwtToken != null
+    }
+
+    private suspend fun refreshTokens(): Boolean {
+        println("Attempting to refresh tokens...")
+        val currentRefreshToken = refreshToken ?: return false
+
+        return try {
+            val response: HttpResponse = client.post("$baseUrl/auth/refresh") {
+                contentType(ContentType.Application.Json)
+                setBody(mapOf("refreshToken" to currentRefreshToken))
+            }
+
+            if (response.status == HttpStatusCode.OK) {
+                val newTokens = response.body<Map<String, String>>()
+                this.jwtToken = newTokens["accessToken"]
+                this.refreshToken = newTokens["refreshToken"]
+                println("Tokens refreshed successfully.")
+
+                if (currentDeviceId != null && this.jwtToken != null) {
+                    connectWebSocket(this.jwtToken!!, currentDeviceId!!)
+                }
+                true
+            } else {
+                println("Refresh token is invalid or expired. Logging out.")
+                logout()
+                false
+            }
+        } catch (e: Exception) {
+            println("Refresh request failed: ${e.message}")
+            false
+        }
+    }
+
+    private suspend fun tryRequest(block: suspend (token: String?) -> HttpResponse): HttpResponse {
+        var response = block(jwtToken)
+
+        if (response.status == HttpStatusCode.Unauthorized) {
+            val refreshSucceeded = refreshMutex.withLock {
+                if (block(jwtToken).status != HttpStatusCode.Unauthorized) {
+                    return@withLock true
+                }
+                refreshTokens()
+            }
+
+            if (refreshSucceeded) {
+                response = block(jwtToken)
+            }
+        }
+        return response
+    }
+
+    private suspend inline fun <reified T> authenticatedGet(
+        urlString: String,
+        crossinline block: HttpRequestBuilder.() -> Unit = {}
+    ): T {
+        val response = tryRequest { token ->
+            client.get(urlString) {
+                token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
+                block()
+            }
+        }
+
+        if (!response.status.isSuccess()) {
+            throw Exception("API request failed with status ${response.status}: ${response.bodyAsText()}")
+        }
+        return response.body()
+    }
+
+    private suspend inline fun <reified T> authenticatedPost(
+        urlString: String,
+        crossinline block: HttpRequestBuilder.() -> Unit = {}
+    ): T {
+        val response = tryRequest { token ->
+            client.post(urlString) {
+                token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
+                block()
+            }
+        }
+
+        if (!response.status.isSuccess()) {
+            throw Exception("API request failed with status ${response.status}: ${response.bodyAsText()}")
+        }
+        return response.body()
+    }
+
+    private suspend inline fun <reified T> authenticatedPut(
+        urlString: String,
+        crossinline block: HttpRequestBuilder.() -> Unit = {}
+    ): T {
+        val response = tryRequest { token ->
+            client.put(urlString) {
+                token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
+                block()
+            }
+        }
+        if (!response.status.isSuccess()) {
+            throw Exception("API PUT request failed to $urlString with status ${response.status}: ${response.bodyAsText()}")
+        }
+        return response.body()
+    }
+
+    private suspend inline fun <reified T> authenticatedDelete(
+        urlString: String,
+        crossinline block: HttpRequestBuilder.() -> Unit = {}
+    ): T {
+        val response = tryRequest { token ->
+            client.delete(urlString) {
+                token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
+                block()
+            }
+        }
+        if (!response.status.isSuccess()) {
+            throw Exception("API DELETE request failed to $urlString with status ${response.status}: ${response.bodyAsText()}")
+        }
+        return response.body()
     }
 
     private fun connectWebSocket(token: String, deviceId: String) {
@@ -296,25 +443,43 @@ class NetworkManager {
         }
     }
 
+//    suspend fun fetchPrekeyBundle(userId: String, deviceId: String): PrekeyBundle {
+//        val response = client.get("$baseUrl/devices/keys") {
+//            contentType(ContentType.Application.Json)
+//            header(HttpHeaders.Authorization, "Bearer $jwtToken")
+//            setBody(userId)
+//        }
+//
+//        println("Response: ${response.status} for prekey bundle , body: ${response.bodyAsText()}")
+//
+//        return Json.decodeFromString<PrekeyBundle>(response.bodyAsText())
+//    }
+//
+//    suspend fun fetchUserDevices(userId: String): Map<String, ByteArray> {
+//        val response = client.get("$baseUrl/devices/all/keys") {
+//            contentType(ContentType.Application.Json)
+//            header(HttpHeaders.Authorization, "Bearer $jwtToken")
+//            setBody(userId)
+//        }
+//        val bundles = Json.decodeFromString<List<PrekeyBundle>>(response.bodyAsText())
+//        return bundles.associate {
+//            it.identityKey to Base64.getDecoder().decode(it.identityKey)
+//        }
+//    }
+
     suspend fun fetchPrekeyBundle(userId: String, deviceId: String): PrekeyBundle {
-        val response = client.get("$baseUrl/devices/keys") {
+        return authenticatedGet("$baseUrl/devices/keys") {
             contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer $jwtToken")
             setBody(userId)
         }
-
-        println("Response: ${response.status} for prekey bundle , body: ${response.bodyAsText()}")
-
-        return Json.decodeFromString<PrekeyBundle>(response.bodyAsText())
     }
 
     suspend fun fetchUserDevices(userId: String): Map<String, ByteArray> {
-        val response = client.get("$baseUrl/devices/all/keys") {
+        val bundles = authenticatedGet<List<PrekeyBundle>>("$baseUrl/devices/all/keys") {
             contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer $jwtToken")
             setBody(userId)
         }
-        val bundles = Json.decodeFromString<List<PrekeyBundle>>(response.bodyAsText())
+
         return bundles.associate {
             it.identityKey to Base64.getDecoder().decode(it.identityKey)
         }
@@ -418,11 +583,11 @@ class NetworkManager {
                     } else {
                         try {
                             Json.decodeFromString<List<User>>(body)
-                        } catch (e: kotlinx.serialization.SerializationException) {
+                        } catch (e: SerializationException) {
                             try {
                                 val user = Json.decodeFromString<User>(body)
                                 listOf(user)
-                            } catch (e2: kotlinx.serialization.SerializationException) {
+                            } catch (e2: SerializationException) {
                                 println("Failed to parse search response as List<User> or User: '$body'. Error for List: ${e.message}. Error for User: ${e2.message}")
                                 emptyList()
                             }
@@ -444,37 +609,82 @@ class NetworkManager {
         }
     }
 
+//    suspend fun searchUsersByEmail(email: String): List<User> {
+//        return try {
+//            authenticatedPost<List<User>>("$baseUrl/users/search") {
+//                contentType(ContentType.Application.Json)
+//                setBody(EmailSearchRequest(email))
+//            }
+//        } catch (e: SerializationException) {
+//            try {
+//                val user = authenticatedPost<User>("$baseUrl/users/search") {
+//                    contentType(ContentType.Application.Json)
+//                    setBody(EmailSearchRequest(email))
+//                }
+//                listOf(user)
+//            } catch (e2: Exception) {
+//                println("Failed to parse search response as List<User> or User: ${e2.message}")
+//                emptyList()
+//            }
+//        } catch (e: Exception) {
+//            println("Error during searchUsersByEmail for '$email': ${e.message}")
+//            emptyList()
+//        }
+//    }
+
+//    suspend fun requestUploadUrl(fileName: String, fileSize: Long): UploadInfo {
+//        if (jwtToken == null) throw Exception("Not authenticated")
+//
+//        return client.post("$baseUrl/files/upload-request") {
+//            contentType(ContentType.Application.Json)
+//            header(HttpHeaders.Authorization, "Bearer $jwtToken")
+//            setBody(UploadRequest(fileName, fileSize))
+//        }.body()
+//    }
+//
+//    suspend fun uploadFile(uploadUrl: String, data: ByteArray) {
+//        val response = client.put(uploadUrl) {
+//            setBody(data)
+//            header(HttpHeaders.Authorization, "Bearer $jwtToken")
+//            contentType(ContentType.Application.OctetStream)
+//        }
+//        if (!response.status.isSuccess()) {
+//            throw Exception("File upload failed: ${response.status} - ${response.bodyAsText()}")
+//        }
+//    }
+
     suspend fun requestUploadUrl(fileName: String, fileSize: Long): UploadInfo {
         if (jwtToken == null) throw Exception("Not authenticated")
 
-        return client.post("$baseUrl/files/upload-request") {
+        return authenticatedPost("$baseUrl/files/upload-request") {
             contentType(ContentType.Application.Json)
-            header(HttpHeaders.Authorization, "Bearer $jwtToken")
             setBody(UploadRequest(fileName, fileSize))
-        }.body()
+        }
     }
 
     suspend fun uploadFile(uploadUrl: String, data: ByteArray) {
-        val response = client.put(uploadUrl) {
+        authenticatedPut<Unit>(uploadUrl) {
             setBody(data)
-            header(HttpHeaders.Authorization, "Bearer $jwtToken")
             contentType(ContentType.Application.OctetStream)
-        }
-        if (!response.status.isSuccess()) {
-            throw Exception("File upload failed: ${response.status} - ${response.bodyAsText()}")
         }
     }
 
+//    suspend fun downloadFile(fileId: String): ByteArray {
+//        if (jwtToken == null) throw Exception("Not authenticated")
+//        val response = client.get("$baseUrl/files/download/$fileId") {
+//            header(HttpHeaders.Authorization, "Bearer $jwtToken")
+//        }
+//        if (response.status == HttpStatusCode.OK) {
+//            return response.body<ByteArray>()
+//        } else {
+//            throw Exception("File download failed: ${response.status}")
+//        }
+//    }
+
     suspend fun downloadFile(fileId: String): ByteArray {
         if (jwtToken == null) throw Exception("Not authenticated")
-        val response = client.get("$baseUrl/files/download/$fileId") {
-            header(HttpHeaders.Authorization, "Bearer $jwtToken")
-        }
-        if (response.status == HttpStatusCode.OK) {
-            return response.body<ByteArray>()
-        } else {
-            throw Exception("File download failed: ${response.status}")
-        }
+
+        return authenticatedGet("$baseUrl/files/download/$fileId")
     }
 
     private fun ByteArray.encodeToBase64(): String = Base64.getEncoder().encodeToString(this)

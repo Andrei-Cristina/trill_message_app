@@ -14,6 +14,7 @@ import io.ktor.server.routing.*
 import io.ktor.util.date.*
 import org.koin.ktor.ext.inject
 import org.mindrot.jbcrypt.BCrypt
+import utils.AuthUtils
 import java.util.*
 
 fun Route.userRoutes() {
@@ -68,8 +69,24 @@ fun Route.userRoutes() {
                 .withExpiresAt(Date(System.currentTimeMillis() + jwtExpirationTime))
                 .sign(Algorithm.HMAC256(jwtSecret))
 
-            call.application.environment.log.info("Successfully logged in user with email: ${loginRequest.email} for device ID: $deviceId")
-            call.respond(HttpStatusCode.OK, mapOf("token" to token, "deviceId" to deviceId))
+            val refreshToken = AuthUtils.generateRefreshToken(userId.email, loginRequest.identityKey.toString())
+            val refreshExpirationDate = System.currentTimeMillis() + 7 * 24 * 60 * 60 * 1000
+
+            deviceRepository.updateRefreshToken(deviceId, refreshToken, refreshExpirationDate).fold(
+                onSuccess = {
+                    call.application.environment.log.info("Successfully logged in user with email: ${loginRequest.email} for device ID: $deviceId")
+                    call.application.environment.log.info("Successfully set refresh token for device: $deviceId")
+                    call.respond(HttpStatusCode.OK, mapOf(
+                        "accessToken" to token,
+                        "refreshToken" to refreshToken,
+                        "deviceId" to deviceId
+                    ))
+                },
+                onFailure = { e ->
+                    call.application.environment.log.error("Failed to set refresh token for device $deviceId", e)
+                    call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Could not complete login"))
+                }
+            )
         }
     }
 
@@ -139,7 +156,7 @@ fun Route.userRoutes() {
                     onFailure = { e ->
                         call.application.environment.log.error("Failed to search users: {}", e.message, e)
                         call.respond(
-                            HttpStatusCode.InternalServerError,
+                            HttpStatusCode.NotFound,
                             mapOf("error" to "Error searching users: ${e.message}")
                         )
                     }

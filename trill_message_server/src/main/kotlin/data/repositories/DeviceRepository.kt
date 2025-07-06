@@ -5,9 +5,7 @@ import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
 import com.mongodb.client.model.FindOneAndUpdateOptions
 import com.mongodb.client.model.ReturnDocument
-import com.trill.message.data.models.Device
-import io.ktor.server.application.*
-import io.ktor.util.*
+import data.models.Device
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -100,6 +98,37 @@ class DeviceRepository(): KoinComponent {
                 Document("\$pull", Document("onetimePreKeys", oneTimePreKey)),
                 FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER)
             )
+        }
+    }
+
+    suspend fun updateRefreshToken(deviceId: String, refreshToken: String, expiresAt: Long): Result<Boolean> = withContext(Dispatchers.IO) {
+        kotlin.runCatching {
+            val updateDoc = Document("\$set", Document()
+                .append("refreshToken", refreshToken)
+                .append("refreshTokenExpiresAt", expiresAt)
+            )
+            val result = collection.updateOne(Filters.eq("identityKey", deviceId), updateDoc)
+            result.wasAcknowledged() && result.modifiedCount > 0
+        }
+    }
+
+    suspend fun findByRefreshToken(token: String): Result<Device> = withContext(Dispatchers.IO) {
+        kotlin.runCatching {
+            collection.find(Filters.eq("refreshToken", token))
+                .first()
+                ?.let { document -> Device.fromDocument(document) }
+                ?: throw NoSuchElementException("Device with the given refresh token not found")
+        }
+    }
+
+    suspend fun clearRefreshToken(deviceId: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        kotlin.runCatching {
+            val updateDoc = Document("\$set", Document()
+                .append("refreshToken", null)
+                .append("refreshTokenExpiresAt", null)
+            )
+            val result = collection.updateOne(Filters.eq("identityKey", deviceId), updateDoc)
+            result.wasAcknowledged()
         }
     }
 }
